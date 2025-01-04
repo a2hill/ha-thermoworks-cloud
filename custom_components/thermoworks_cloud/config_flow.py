@@ -47,11 +47,11 @@ async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str,
         raise CannotConnect from e
 
     # Return info that you want to store in the config entry.
-    return {"title": "Thermoworks Cloud", "user": auth.user_id}
+    return {"title": "ThermoWorks Cloud", "user": auth.user_id}
 
 
 class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    """Handle a config flow for Thermoworks Cloud."""
+    """Handle a config flow for ThermoWorks Cloud."""
 
     VERSION = 1
     _input_data: dict[str, Any]
