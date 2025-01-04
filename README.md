@@ -15,7 +15,7 @@ If you have [HACS](https://hacs.xyz/) installed in your Home Assistant instance
 [![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=a2hill&repository=ha-thermoworks-cloud&category=integration)
 
 ### Manual Installation
-Copy the [custom_components/thermoworks_cloud](custom_components/thermoworks_cloud) folder into the `config/custom_components` folder of your Home Assistant instance
+Copy the [custom_components/thermoworks_cloud](custom_components/) folder into the `config/custom_components` folder of your Home Assistant instance
 
 ## Also
 To pull data, this integration uses [python-thermoworks-cloud](https://github.com/a2hill/python-thermoworks-cloud)
