@@ -1,0 +1,5 @@
+rules:
+  config_flow: done
+  docs_high_level_description:
+    status: exempt
+    comment: This integration does not connect to any device or service.

@@ -1,0 +1,10 @@
+# Hide some OS X stuff
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+
+# pytest
+**/__pycache__
+
+translations

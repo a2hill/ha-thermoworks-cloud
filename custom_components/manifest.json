@@ -1,0 +1,22 @@
+{
+  "domain": "thermoworks_cloud",
+  "name": "ThermoWorks Cloud",
+  "codeowners": [
+    "@a2hill"
+  ],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://www.home-assistant.io/integrations/thermoworks_cloud",
+  "homekit": {},
+  "iot_class": "cloud_polling",
+  "loggers": [
+    "thermoworks_cloud"
+  ],
+  "requirements": [
+    "thermoworks_cloud==0.1.3"
+  ],
+  "single_config_entry": false,
+  "ssdp": [],
+  "version": "0.1.0",
+  "zeroconf": []
+}
