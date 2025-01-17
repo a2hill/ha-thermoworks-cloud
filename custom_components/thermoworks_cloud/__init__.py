@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-import logging
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
@@ -51,7 +50,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Add the coordinator and update listener to hass data to make
     # accessible throughout your integration
     # Note: this will change on HA2024.6 to save on the config entry.
-    hass.data[DOMAIN][entry.entry_id] = RuntimeData(coordinator, cancel_update_listener)
+    hass.data[DOMAIN][entry.entry_id] = RuntimeData(
+        coordinator, cancel_update_listener)
 
     # Setup platforms (based on the list of entity types in PLATFORMS defined above)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)

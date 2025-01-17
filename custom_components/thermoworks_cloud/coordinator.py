@@ -10,7 +10,7 @@ from homeassistant.const import CONF_EMAIL, CONF_PASSWORD, CONF_SCAN_INTERVAL
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
-from thermoworks_cloud import AuthFactory, ThermoworksCloud
+from thermoworks_cloud import AuthFactory, ThermoworksCloud, ResourceNotFoundError
 from thermoworks_cloud.models import Device, DeviceChannel
 
 from .const import DEFAULT_SCAN_INTERVAL_SECONDS, DOMAIN
@@ -100,7 +100,8 @@ class ThermoworksCoordinator(DataUpdateCoordinator):
                                 device_serial=device_serial, channel=str(channel)
                             )
                         )
-                    except RuntimeError:
+                    except ResourceNotFoundError:
+                        # Go until there are no more
                         break
 
                 device_channels_by_device[device_serial] = device_channels
