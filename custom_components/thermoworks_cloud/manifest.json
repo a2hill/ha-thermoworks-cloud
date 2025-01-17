@@ -13,6 +13,9 @@
   "loggers": [
     "thermoworks_cloud"
   ],
+  "requirements": [
+    "thermoworks_cloud==0.1.5"
+  ],
   "single_config_entry": false,
   "ssdp": [],
   "version": "0.1.0",
