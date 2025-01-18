@@ -12,8 +12,8 @@ from homeassistant.components.sensor import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import PERCENTAGE, SIGNAL_STRENGTH_DECIBELS, UnitOfTemperature
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.device_registry import format_mac
-from homeassistant.helpers.entity import DeviceInfo, async_generate_entity_id
+from homeassistant.helpers.device_registry import format_mac, DeviceInfo
+from homeassistant.helpers.entity import async_generate_entity_id
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity, UpdateFailed
 from thermoworks_cloud.models import Device, DeviceChannel
@@ -64,7 +64,8 @@ async def async_setup_entry(
                 TemperatureSensor(
                     entity_id=async_generate_entity_id(
                         ENTITY_ID_FORMAT,
-                        f"{device.device_id}_ch_{device_channel.number}_temperature",
+                        f"{device.device_id}_ch_{
+                            device_channel.number}_temperature",
                         hass=hass,
                     ),
                     coordinator=coordinator,
@@ -201,7 +202,8 @@ class TemperatureSensor(CoordinatorEntity, SensorEntity):
         if device_channel:
             if device_channel.status != "NORMAL":
                 raise UpdateFailed(
-                    f"Sensor {self.name} returned status: {device_channel.status}"
+                    f"Sensor {self.name} returned status: {
+                        device_channel.status}"
                 )
             self.device_channel = device_channel
             self.async_write_ha_state()
@@ -244,7 +246,8 @@ class TemperatureSensor(CoordinatorEntity, SensorEntity):
             return UnitOfTemperature.CELSIUS
 
         raise ValueError(
-            f"Unable to determine unit of measurement from unit string '{self.device_channel.units}'"
+            f"Unable to determine unit of measurement from unit string '{
+                self.device_channel.units}'"
         )
 
     @property
@@ -253,7 +256,8 @@ class TemperatureSensor(CoordinatorEntity, SensorEntity):
         # All entities must have a unique id.  Think carefully what you want this to be as
         # changing it later will cause HA to create new entities.
         return (
-            f"{DOMAIN}-{format_mac(self._device_serial)}-{self.device_channel.number}"
+            f"{DOMAIN}-{format_mac(self._device_serial)
+                        }-{self.device_channel.number}"
         )
 
 

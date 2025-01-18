@@ -1,10 +1,10 @@
 """Coordinates data updates from the Thermoworks Cloud API."""
 
 from dataclasses import dataclass
+from datetime import timedelta
 import logging
 from typing import Any, TypedDict
 
-from homeassistant.components.sensor import timedelta
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD, CONF_SCAN_INTERVAL
 from homeassistant.core import HomeAssistant
@@ -97,7 +97,8 @@ class ThermoworksCoordinator(DataUpdateCoordinator):
                     try:
                         device_channels.append(
                             await self.api.get_device_channel(
-                                device_serial=device_serial, channel=str(channel)
+                                device_serial=device_serial, channel=str(
+                                    channel)
                             )
                         )
                     except ResourceNotFoundError:
