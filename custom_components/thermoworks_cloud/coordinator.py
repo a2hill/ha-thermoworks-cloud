@@ -3,7 +3,6 @@
 from dataclasses import dataclass
 from datetime import timedelta
 import logging
-from typing import Any, TypedDict
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD, CONF_SCAN_INTERVAL
@@ -11,24 +10,25 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from thermoworks_cloud import AuthFactory, ThermoworksCloud, ResourceNotFoundError
-from thermoworks_cloud.models import Device, DeviceChannel
 
 from .const import DEFAULT_SCAN_INTERVAL_SECONDS, DOMAIN
+from .exceptions import MissingRequiredAttributeError
+from .models import ThermoworksDevice, ThermoworksChannel
 
-_LOGGER = logging.getLogger(__name__)
+_LOGGER: logging.Logger = logging.getLogger(__package__)
 
 
 @dataclass
-class ThermoworksData(TypedDict):
+class ThermoworksData:
     """Class to hold data retrieved from the Thermoworks Cloud API."""
 
     # List of devices retreived for the user
-    devices: list[Device]
+    devices: list[ThermoworksDevice]
     # Map of DeviceChannel's indexed by device id
-    device_channels: dict[str, list[DeviceChannel]]
+    device_channels: dict[str, list[ThermoworksChannel]]
 
 
-class ThermoworksCoordinator(DataUpdateCoordinator):
+class ThermoworksCoordinator(DataUpdateCoordinator[ThermoworksData]):
     """Coordinate device updates from Thermoworks Cloud."""
 
     auth_factory: AuthFactory
@@ -62,7 +62,7 @@ class ThermoworksCoordinator(DataUpdateCoordinator):
         self.auth_factory = AuthFactory(client_session)
         self.api = None
 
-    async def async_update_data(self) -> dict[str, Any]:
+    async def async_update_data(self) -> ThermoworksData:
         """Fetch data from API endpoint.
 
         This is the place to pre-process the data to lookup tables
@@ -73,54 +73,98 @@ class ThermoworksCoordinator(DataUpdateCoordinator):
             if self.api is None:
                 # Do not need to worry about invalid credentials here as they have been
                 # validated during the config_flow
+                _LOGGER.debug(
+                    "Initializing Thermoworks Cloud API connection for %s", self.email)
                 auth = await self.auth_factory.build_auth(
                     self.email, password=self.password
                 )
                 self.api = ThermoworksCloud(auth)
+                _LOGGER.debug(
+                    "Successfully authenticated with Thermoworks Cloud API")
 
-            devices: list[Device] = []
-            device_channels_by_device: dict[str, list[DeviceChannel]] = {}
+            devices: list[ThermoworksDevice] = []
+            device_channels_by_device: dict[str, list[ThermoworksChannel]] = {}
 
             user = await self.api.get_user()
-            device_serials = [
-                device_order_item.device_id
-                for device_order_item in user.device_order[user.account_id]
-            ]
+            _LOGGER.debug("Retrieved user data: %s", user)
+
+            device_serials = []
+            if user.account_id is not None and user.device_order is not None:
+                device_serials = [
+                    device_order_item.device_id
+                    for device_order_item in user.device_order.get(user.account_id, [])
+                    if device_order_item.device_id is not None
+                ]
+            _LOGGER.debug("Found %d devices in user account",
+                          len(device_serials))
 
             for device_serial in device_serials:
-                device = await self.api.get_device(device_serial)
-                devices.append(device)
-
-                device_channels = []
-                # According to reverse engineering, channels seem to be 1 indexed
-                for channel in range(1, 10):
+                try:
+                    api_device = await self.api.get_device(device_serial)
                     try:
-                        device_channels.append(
-                            await self.api.get_device_channel(
+                        device = ThermoworksDevice.from_api_device(api_device)
+                        devices.append(device)
+                        _LOGGER.debug("Retrieved device %s",
+                                      device.display_name())
+                    except MissingRequiredAttributeError as err:
+                        _LOGGER.error("Device %s: %s", device_serial, err)
+                        # Skip this device as it's missing critical data
+
+                    device_channels = []
+                    # According to the observed behavior, channels seem to be 1 indexed
+                    for channel in range(1, 10):
+                        try:
+                            api_channel = await self.api.get_device_channel(
                                 device_serial=device_serial, channel=str(
                                     channel)
                             )
-                        )
-                    except ResourceNotFoundError:
-                        # Go until there are no more
-                        break
+                            try:
+                                channel_data = ThermoworksChannel.from_api_channel(
+                                    api_channel)
+                                device_channels.append(channel_data)
+                                _LOGGER.debug(
+                                    "Retrieved channel %s for device %s",
+                                    channel_data.display_name(), device_serial)
+                            except MissingRequiredAttributeError as err:
+                                _LOGGER.error("Channel %s for device %s: %s",
+                                              channel, device.display_name(), err)
+                                # Skip this channel as it's missing critical data
+                        except ResourceNotFoundError:
+                            _LOGGER.debug("No more channels found for device %s after channel %s",
+                                          device.display_name(), channel-1)
+                            # Go until there are no more
+                            break
+                        except Exception as channel_err:
+                            _LOGGER.error("Error fetching channel %s for device %s: %s",
+                                          channel, device.display_name(), channel_err)
+                            # Continue with next channel
+                            continue
 
-                device_channels_by_device[device_serial] = device_channels
+                    device_channels_by_device[device_serial] = device_channels
+                    _LOGGER.debug("Found %d channels for device %s",
+                                  len(device_channels), device.display_name())
+                except Exception as device_err:
+                    _LOGGER.error("Error fetching device %s: %s",
+                                  device_serial, device_err)
+                    # Continue with next device
+                    continue
 
         except Exception as err:
             # This will show entities as unavailable by raising UpdateFailed exception
             raise UpdateFailed(f"Error communicating with API: {err}") from err
 
-        # What is returned here is stored in self.data by the DataUpdateCoordinator
-        return {
-            "devices": devices,
-            "device_channels": device_channels_by_device,
-        }
+        _LOGGER.debug(
+            "Update completed: %d devices with data retrieved", len(devices))
 
-    def get_device_by_id(self, device_id: str) -> Device | None:
+        return ThermoworksData(
+            devices=devices,
+            device_channels=device_channels_by_device,
+        )
+
+    def get_device_by_id(self, device_id: str) -> ThermoworksDevice | None:
         """Return device by device id."""
         # Called by the battery sensor to get its updated data from self.data
-        for device in self.data["devices"]:
+        for device in self.data.devices:
             if device.device_id == device_id:
                 return device
 
@@ -128,11 +172,11 @@ class ThermoworksCoordinator(DataUpdateCoordinator):
 
     def get_device_channel_by_id(
         self, device_id: str, channel_id: str
-    ) -> DeviceChannel | None:
+    ) -> ThermoworksChannel | None:
         """Return device channel by device id and channel id."""
         # Called by the temperature sensors to get their updated data from self.data
 
-        for device_channel in self.data["device_channels"][device_id]:
+        for device_channel in self.data.device_channels.get(device_id, []):
             if device_channel.number == channel_id:
                 return device_channel
 

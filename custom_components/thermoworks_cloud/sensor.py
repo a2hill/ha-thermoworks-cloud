@@ -1,5 +1,4 @@
 """Sensors representing a Thermoworks thermometer."""
-
 from collections.abc import Mapping
 import logging
 
@@ -16,12 +15,19 @@ from homeassistant.helpers.device_registry import format_mac, DeviceInfo
 from homeassistant.helpers.entity import async_generate_entity_id
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity, UpdateFailed
-from thermoworks_cloud.models import Device, DeviceChannel
 
 from .const import DOMAIN
+
+from .models import (
+    DeviceWithBattery,
+    DeviceWithWifi,
+    ThermoworksChannel,
+    get_missing_attributes,
+)
+
 from .coordinator import ThermoworksCoordinator
 
-_LOGGER = logging.getLogger(__name__)
+_LOGGER: logging.Logger = logging.getLogger(__package__)
 
 
 async def async_setup_entry(
@@ -35,32 +41,51 @@ async def async_setup_entry(
         config_entry.entry_id
     ].coordinator
 
-    new_devices = []
-    for device in coordinator.data["devices"]:
-        new_devices.append(
-            BatterySensor(
-                entity_id=async_generate_entity_id(
-                    ENTITY_ID_FORMAT,
-                    f"{device.device_id}_battery",
-                    hass=hass,
-                ),
-                coordinator=coordinator,
-                device=device,
+    new_entities = []
+    for device in coordinator.data.devices:
+
+        # Only create battery sensor if the device has battery capability
+        if DeviceWithBattery.is_protocol_compliant(device):
+            new_entities.append(
+                BatterySensor(
+                    entity_id=async_generate_entity_id(
+                        ENTITY_ID_FORMAT,
+                        f"{device.device_id}_battery",
+                        hass=hass,
+                    ),
+                    coordinator=coordinator,
+                    device=device,
+                )
             )
-        )
-        new_devices.append(
-            SignalSensor(
-                entity_id=async_generate_entity_id(
-                    ENTITY_ID_FORMAT,
-                    f"{device.device_id}_signal",
-                    hass=hass,
-                ),
-                coordinator=coordinator,
-                device=device,
+        else:
+            _LOGGER.debug(
+                "Not creating battery sensor for device %s, "
+                "missing required attributes: %s", device.display_name(
+                ), get_missing_attributes(device, DeviceWithBattery)
             )
-        )
-        for device_channel in coordinator.data["device_channels"][device.device_id]:
-            new_devices.append(
+
+        # Only create signal sensor if the device has WiFi capability
+        if DeviceWithWifi.is_protocol_compliant(device):
+            new_entities.append(
+                SignalSensor(
+                    entity_id=async_generate_entity_id(
+                        ENTITY_ID_FORMAT,
+                        f"{device.device_id}_signal",
+                        hass=hass,
+                    ),
+                    coordinator=coordinator,
+                    device=device,
+                )
+            )
+        else:
+            _LOGGER.debug(
+                "Not creating wifi sensor for device %s, "
+                "missing required attributes: %s", device.display_name(
+                ), get_missing_attributes(device, DeviceWithWifi)
+            )
+
+        for device_channel in coordinator.data.device_channels.get(device.device_id, []):
+            new_entities.append(
                 TemperatureSensor(
                     entity_id=async_generate_entity_id(
                         ENTITY_ID_FORMAT,
@@ -73,14 +98,16 @@ async def async_setup_entry(
                     device_channel=device_channel,
                 )
             )
-        if len(new_devices) > 0:
-            async_add_entities(new_devices)
+
+        if len(new_entities) > 0:
+            _LOGGER.debug("New entities created: %d", len(new_entities))
+            async_add_entities(new_entities)
+        else:
+            _LOGGER.debug("No new entities created")
 
 
-class BatterySensor(CoordinatorEntity, SensorEntity):
+class BatterySensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
     """Implementation of a sensor."""
-
-    coordinator: ThermoworksCoordinator
 
     # https://developers.home-assistant.io/docs/core/entity/sensor/#available-device-classes
     _attr_device_class = SensorDeviceClass.BATTERY
@@ -103,7 +130,7 @@ class BatterySensor(CoordinatorEntity, SensorEntity):
         self,
         entity_id: str,
         coordinator: ThermoworksCoordinator,
-        device: Device,
+        device: DeviceWithBattery,
     ) -> None:
         """Initialise sensor."""
         super().__init__(coordinator)
@@ -115,11 +142,15 @@ class BatterySensor(CoordinatorEntity, SensorEntity):
         """Update sensor with latest data from coordinator."""
         # This method is called by your DataUpdateCoordinator when a successful update runs.
         device = self.coordinator.get_device_by_id(self._device.device_id)
-        if device:
-            self._device = device
-            self.async_write_ha_state()
-        else:
-            raise UpdateFailed(f"Sensor {self.name} failed to update")
+        if not device:
+            raise UpdateFailed(
+                f"Cannot update sensor {self.name}: device {self._device.display_name()} is not found")
+        if not DeviceWithBattery.is_protocol_compliant(device):
+            raise UpdateFailed(
+                f"Cannot update sensor {self.name}: device {self._device.display_name()} is missing required "
+                f"attribute(s): {get_missing_attributes(device, DeviceWithBattery)}")
+        self._device = device
+        self.async_write_ha_state()
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -156,10 +187,10 @@ class BatterySensor(CoordinatorEntity, SensorEntity):
         return f"{DOMAIN}-{format_mac(self._device.device_id)}"
 
 
-class TemperatureSensor(CoordinatorEntity, SensorEntity):
+class TemperatureSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
     """Implementation of a thermoworks temperature sensor."""
 
-    device_channel: DeviceChannel
+    _device_channel: ThermoworksChannel
 
     # https://developers.home-assistant.io/docs/core/entity/sensor/#available-device-classes
     _attr_device_class = SensorDeviceClass.TEMPERATURE
@@ -182,14 +213,13 @@ class TemperatureSensor(CoordinatorEntity, SensorEntity):
         entity_id: str,
         coordinator: ThermoworksCoordinator,
         device_serial: str,
-        device_channel: DeviceChannel,
+        device_channel: ThermoworksChannel,
     ) -> None:
         """Initialize the sensor."""
 
         super().__init__(coordinator)
         self.entity_id = entity_id
-        self.coordinator = coordinator
-        self.device_channel = device_channel
+        self._device_channel = device_channel
         self._device_serial = device_serial
 
     @callback
@@ -197,18 +227,14 @@ class TemperatureSensor(CoordinatorEntity, SensorEntity):
         """Update sensor with latest data from coordinator."""
         # This method is called by your DataUpdateCoordinator when a successful update runs.
         device_channel = self.coordinator.get_device_channel_by_id(
-            device_id=self._device_serial, channel_id=self.device_channel.number
+            device_id=self._device_serial, channel_id=self._device_channel.number
         )
-        if device_channel:
-            if device_channel.status != "NORMAL":
-                raise UpdateFailed(
-                    f"Sensor {self.name} returned status: {
-                        device_channel.status}"
-                )
-            self.device_channel = device_channel
-            self.async_write_ha_state()
-        else:
-            raise UpdateFailed(f"Sensor {self.name} failed to update")
+        if not device_channel:
+            raise UpdateFailed(
+                f"Cannot update sensor {self.name}: device channel {self._device_channel.display_name()} "
+                "is not found")
+        self._device_channel = device_channel
+        self.async_write_ha_state()
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -228,26 +254,28 @@ class TemperatureSensor(CoordinatorEntity, SensorEntity):
     @property
     def translation_placeholders(self) -> Mapping[str, str]:
         """Placeholder values for string internationalization."""
-        return {"channel_name": self.device_channel.label}
+        return {"channel_name": self._device_channel.display_name()}
 
     @property
     def native_value(self) -> int | float:
         """Return the state of the entity."""
         # Using native value and native unit of measurement, allows you to change units
         # in Lovelace and HA will automatically calculate the correct value.
-        return float(self.device_channel.value)
+        return float(self._device_channel.value)
 
     @property
     def native_unit_of_measurement(self) -> str | None:
         """Return unit of temperature."""
-        if self.device_channel.units == "F":
+        if self._device_channel.units is None:
+            return None
+        if self._device_channel.units == "F":
             return UnitOfTemperature.FAHRENHEIT
-        if self.device_channel.units == "C":
+        if self._device_channel.units == "C":
             return UnitOfTemperature.CELSIUS
 
         raise ValueError(
             f"Unable to determine unit of measurement from unit string '{
-                self.device_channel.units}'"
+                self._device_channel.units}'"
         )
 
     @property
@@ -257,11 +285,11 @@ class TemperatureSensor(CoordinatorEntity, SensorEntity):
         # changing it later will cause HA to create new entities.
         return (
             f"{DOMAIN}-{format_mac(self._device_serial)
-                        }-{self.device_channel.number}"
+                        }-{self._device_channel.number}"
         )
 
 
-class SignalSensor(CoordinatorEntity, SensorEntity):
+class SignalSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
     """Implementation of a sensor."""
 
     # https://developers.home-assistant.io/docs/core/entity/sensor/#available-device-classes
@@ -281,13 +309,11 @@ class SignalSensor(CoordinatorEntity, SensorEntity):
     _attr_native_unit_of_measurement = SIGNAL_STRENGTH_DECIBELS
     _attr_suggested_display_precision = 0
 
-    coordinator: ThermoworksCoordinator
-
     def __init__(
         self,
         entity_id: str,
         coordinator: ThermoworksCoordinator,
-        device: Device,
+        device: DeviceWithWifi,
     ) -> None:
         """Initialise sensor."""
         super().__init__(coordinator)
@@ -299,11 +325,15 @@ class SignalSensor(CoordinatorEntity, SensorEntity):
         """Update sensor with latest data from coordinator."""
         # This method is called by your DataUpdateCoordinator when a successful update runs.
         device = self.coordinator.get_device_by_id(self._device.device_id)
-        if device:
-            self._device = device
-            self.async_write_ha_state()
-        else:
-            raise UpdateFailed(f"Sensor {self.name} failed to update")
+        if not device:
+            raise UpdateFailed(
+                f"Cannot update sensor {self.name}: device {self._device.display_name()} is not found")
+        if not DeviceWithWifi.is_protocol_compliant(device):
+            raise UpdateFailed(
+                f"Cannot update sensor {self.name}: device {self._device.display_name()} is missing required "
+                f"attribute(s): {get_missing_attributes(device, DeviceWithWifi)}")
+        self._device = device
+        self.async_write_ha_state()
 
     @property
     def device_info(self) -> DeviceInfo:

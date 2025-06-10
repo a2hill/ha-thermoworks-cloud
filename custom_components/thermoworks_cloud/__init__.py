@@ -23,7 +23,7 @@ PLATFORMS: list[Platform] = [Platform.SENSOR]
 class RuntimeData:
     """Data available globally throughout the integration."""
 
-    coordinator: DataUpdateCoordinator
+    coordinator: ThermoworksCoordinator
     cancel_update_listener: Callable
 
 

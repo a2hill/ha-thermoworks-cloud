@@ -16,7 +16,7 @@ from thermoworks_cloud import AuthenticationError, AuthFactory, ThermoworksCloud
 
 from .const import DEFAULT_SCAN_INTERVAL_SECONDS, DOMAIN, MIN_SCAN_INTERVAL_SECONDS
 
-_LOGGER = logging.getLogger(__name__)
+_LOGGER: logging.Logger = logging.getLogger(__package__)
 
 CONFIG_SCHEMA = vol.Schema(
     {
