@@ -41,10 +41,10 @@ def get_missing_attributes(obj: Any, protocol_cls: Type) -> list[str]:
 @dataclass(frozen=True)
 class BaseDevice(Protocol):
     device_id: str
+    serial: str
     label: Optional[str] = None
     device_name: Optional[str] = None
     firmware: Optional[str] = None
-    serial: Optional[str] = None
     battery: Optional[float] = None
     wifi_strength: Optional[float] = None
 
