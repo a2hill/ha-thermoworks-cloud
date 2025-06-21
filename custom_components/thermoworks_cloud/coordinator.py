@@ -134,7 +134,7 @@ class ThermoworksCoordinator(DataUpdateCoordinator[ThermoworksData]):
                         # Continue with next channel
                         continue
 
-                device_channels_by_device[device.serial] = device_channels
+                device_channels_by_device[device.get_identifier()] = device_channels
                 _LOGGER.debug("Found %d channels for device %s",
                               len(device_channels), device.display_name())
 
@@ -151,10 +151,10 @@ class ThermoworksCoordinator(DataUpdateCoordinator[ThermoworksData]):
         )
 
     def get_device_by_id(self, device_id: str) -> ThermoworksDevice | None:
-        """Return device by device id."""
+        """Return device by device id or serial."""
         # Called by the battery sensor to get its updated data from self.data
         for device in self.data.devices:
-            if device.device_id == device_id:
+            if device.get_identifier() == device_id:
                 return device
 
         return None

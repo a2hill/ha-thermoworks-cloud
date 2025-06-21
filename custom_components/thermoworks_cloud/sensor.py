@@ -50,7 +50,7 @@ async def async_setup_entry(
                 BatterySensor(
                     entity_id=async_generate_entity_id(
                         ENTITY_ID_FORMAT,
-                        f"{device.device_id}_battery",
+                        f"{device.get_identifier()}_battery",
                         hass=hass,
                     ),
                     coordinator=coordinator,
@@ -70,7 +70,7 @@ async def async_setup_entry(
                 SignalSensor(
                     entity_id=async_generate_entity_id(
                         ENTITY_ID_FORMAT,
-                        f"{device.device_id}_signal",
+                        f"{device.get_identifier()}_signal",
                         hass=hass,
                     ),
                     coordinator=coordinator,
@@ -84,17 +84,17 @@ async def async_setup_entry(
                 ), get_missing_attributes(device, DeviceWithWifi)
             )
 
-        for device_channel in coordinator.data.device_channels.get(device.device_id, []):
+        for device_channel in coordinator.data.device_channels.get(device.get_identifier(), []):
             new_entities.append(
                 TemperatureSensor(
                     entity_id=async_generate_entity_id(
                         ENTITY_ID_FORMAT,
-                        f"{device.device_id}_ch_{
+                        f"{device.get_identifier()}_ch_{
                             device_channel.number}_temperature",
                         hass=hass,
                     ),
                     coordinator=coordinator,
-                    device_serial=device.device_id,
+                    device_serial=device.get_identifier(),
                     device_channel=device_channel,
                 )
             )
@@ -141,7 +141,7 @@ class BatterySensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
     def _handle_coordinator_update(self) -> None:
         """Update sensor with latest data from coordinator."""
         # This method is called by your DataUpdateCoordinator when a successful update runs.
-        device = self.coordinator.get_device_by_id(self._device.device_id)
+        device = self.coordinator.get_device_by_id(self._device.get_identifier())
         if not device:
             raise UpdateFailed(
                 f"Cannot update sensor {self.name}: device {self._device.display_name()} is not found")
@@ -162,7 +162,7 @@ class BatterySensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
             identifiers={
                 (
                     DOMAIN,
-                    f"{format_mac(self._device.device_id)}",
+                    f"{format_mac(self._device.get_identifier())}",
                 )
             },
             name=self._device.label,
@@ -184,7 +184,7 @@ class BatterySensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
         """Return unique id."""
         # All entities must have a unique id.  Think carefully what you want this to be as
         # changing it later will cause HA to create new entities.
-        return f"{DOMAIN}-{format_mac(self._device.device_id)}"
+        return f"{DOMAIN}-{format_mac(self._device.get_identifier())}"
 
 
 class TemperatureSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
@@ -324,7 +324,7 @@ class SignalSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
     def _handle_coordinator_update(self) -> None:
         """Update sensor with latest data from coordinator."""
         # This method is called by your DataUpdateCoordinator when a successful update runs.
-        device = self.coordinator.get_device_by_id(self._device.device_id)
+        device = self.coordinator.get_device_by_id(self._device.get_identifier())
         if not device:
             raise UpdateFailed(
                 f"Cannot update sensor {self.name}: device {self._device.display_name()} is not found")
@@ -345,7 +345,7 @@ class SignalSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
             identifiers={
                 (
                     DOMAIN,
-                    f"{format_mac(self._device.device_id)}",
+                    f"{format_mac(self._device.get_identifier())}",
                 )
             }
         )
@@ -362,4 +362,4 @@ class SignalSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
         """Return unique id."""
         # All entities must have a unique id.  Think carefully what you want this to be as
         # changing it later will cause HA to create new entities.
-        return f"{DOMAIN}-{format_mac(self._device.device_id)}-signal"
+        return f"{DOMAIN}-{format_mac(self._device.get_identifier())}-signal"

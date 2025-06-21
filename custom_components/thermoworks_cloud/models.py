@@ -40,8 +40,8 @@ def get_missing_attributes(obj: Any, protocol_cls: Type) -> list[str]:
 
 @dataclass(frozen=True)
 class BaseDevice(Protocol):
-    device_id: str
     serial: str
+    device_id: Optional[str] = None
     label: Optional[str] = None
     device_name: Optional[str] = None
     firmware: Optional[str] = None
@@ -66,7 +66,7 @@ class ThermoworksDevice(BaseDevice):
                 get_missing_attributes(device, ThermoworksDevice), ThermoworksDevice)
 
         return cls(
-            device_id=device.device_id,
+            device_id=getattr(device, 'device_id', None),
             label=device.label,
             device_name=device.device_name,
             firmware=device.firmware,
@@ -75,10 +75,14 @@ class ThermoworksDevice(BaseDevice):
             wifi_strength=device.wifi_strength
         )
 
+    def get_identifier(self) -> str:
+        """Return the device identifier, preferring device_id but falling back to serial."""
+        return self.device_id if self.device_id else self.serial
+
     def display_name(self) -> str:
         """Return the display name of the device."""
         # {user given name} ({rfx gateway, rfx meat, node, etc.} - {usually serial number})
-        return f"{self.label or "unnamed device"} ({self.device_name or "unknown device"} - {self.device_id})"
+        return f"{self.label or "unnamed device"} ({self.device_name or "unknown device"} - {self.get_identifier()})"
 
 
 class DeviceWithBattery(ThermoworksDevice):
