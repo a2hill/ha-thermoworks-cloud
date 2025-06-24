@@ -174,6 +174,18 @@ class BatterySensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
         )
 
     @property
+    def icon(self) -> str | None:
+        """Return the icon to use in the frontend, if any."""
+
+        # Only handle the case where the device is charging as HA doesn't natively support
+        # a charging icon. None check is because not all battery devices support the battery
+        # state property
+        if self._device.battery_state is not None and self._device.battery_state == "charging":
+            return "mdi:battery-charging-100"
+
+        return None
+
+    @property
     def native_value(self) -> int | float:
         """Return the state of the entity."""
         # Using native value and native unit of measurement, allows you to change units

@@ -46,6 +46,7 @@ class BaseDevice(Protocol):
     device_name: Optional[str] = None
     firmware: Optional[str] = None
     battery: Optional[float] = None
+    battery_state: Optional[str] = None
     wifi_strength: Optional[float] = None
 
 
