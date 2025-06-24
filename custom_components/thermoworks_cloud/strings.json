@@ -8,6 +8,15 @@
         }
       }
     },
+    "options": {
+      "step": {
+        "init": {
+          "data": {
+            "scan_interval": "Scan interval ({unit})"
+          }
+        }
+      }
+    },
     "error": {
       "cannot_connect": "[%key:common::config_flow::error::cannot_connect%]",
       "invalid_auth": "[%key:common::config_flow::error::invalid_auth%]",
