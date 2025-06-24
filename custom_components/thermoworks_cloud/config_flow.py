@@ -99,7 +99,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         """Handle options flow."""
         if user_input is not None:
             options = self.config_entry.options | user_input
-            return self.async_create_entry(title="", data=options)
+            return self.async_create_entry(data=options)
 
         # It is recommended to prepopulate options fields with default values if available.
         # These will be the same default values you use on your coordinator for setting variable values

@@ -6,13 +6,15 @@
           "email": "[%key:common::config_flow::data::email%]",
           "password": "[%key:common::config_flow::data::password%]"
         }
-      }
-    },
-    "options": {
-      "step": {
+      },
+      "options": {
         "init": {
+          "title": "ThermoWorks Options",
           "data": {
             "scan_interval": "Scan interval ({unit})"
+          },
+          "data_description": {
+            "scan_interval": "How often to poll ThermoWorks for updates"
           }
         }
       }
