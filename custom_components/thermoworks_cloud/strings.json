@@ -6,15 +6,6 @@
           "email": "[%key:common::config_flow::data::email%]",
           "password": "[%key:common::config_flow::data::password%]"
         }
-      },
-      "init": {
-        "title": "ThermoWorks Options",
-        "data": {
-          "scan_interval": "Scan interval ({unit})"
-        },
-        "data_description": {
-          "scan_interval": "How often to poll ThermoWorks for updates"
-        }
       }
     },
     "error": {
@@ -24,6 +15,19 @@
     },
     "abort": {
       "already_configured": "[%key:common::config_flow::abort::already_configured_account%]"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "ThermoWorks Options",
+        "data": {
+          "scan_interval": "Scan interval ({unit})"
+        },
+        "data_description": {
+          "scan_interval": "How often to poll ThermoWorks for updates"
+        }
+      }
     }
   },
   "entity": {
