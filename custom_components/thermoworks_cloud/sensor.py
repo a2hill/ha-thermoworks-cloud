@@ -141,7 +141,8 @@ class BatterySensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
     def _handle_coordinator_update(self) -> None:
         """Update sensor with latest data from coordinator."""
         # This method is called by your DataUpdateCoordinator when a successful update runs.
-        device = self.coordinator.get_device_by_id(self._device.get_identifier())
+        device = self.coordinator.get_device_by_id(
+            self._device.get_identifier())
         if not device:
             raise UpdateFailed(
                 f"Cannot update sensor {self.name}: device {self._device.display_name()} is not found")
@@ -252,6 +253,13 @@ class TemperatureSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity)
         )
 
     @property
+    def name(self) -> str:
+        """Return the name of the sensor."""
+        # This is the name that will be shown in the Entity UI.
+        # It is the name of the channel, not the device.
+        return self._device_channel.display_name().capitalize()
+
+    @property
     def translation_placeholders(self) -> Mapping[str, str]:
         """Placeholder values for string internationalization."""
         return {"channel_name": self._device_channel.display_name()}
@@ -324,7 +332,8 @@ class SignalSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
     def _handle_coordinator_update(self) -> None:
         """Update sensor with latest data from coordinator."""
         # This method is called by your DataUpdateCoordinator when a successful update runs.
-        device = self.coordinator.get_device_by_id(self._device.get_identifier())
+        device = self.coordinator.get_device_by_id(
+            self._device.get_identifier())
         if not device:
             raise UpdateFailed(
                 f"Cannot update sensor {self.name}: device {self._device.display_name()} is not found")
