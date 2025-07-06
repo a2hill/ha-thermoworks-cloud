@@ -20,9 +20,8 @@
   "options": {
     "step": {
       "init": {
-        "title": "ThermoWorks Options",
         "data": {
-          "scan_interval": "Scan interval ({unit})"
+          "scan_interval": "Scan interval (seconds)"
         },
         "data_description": {
           "scan_interval": "How often to poll ThermoWorks for updates"
