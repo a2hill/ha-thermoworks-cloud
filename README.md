@@ -6,8 +6,7 @@
 This integration allows [Home Assistant](https://www.home-assistant.io/) to pull data (temperature, battery, signal strength) from ThermoWorks Cloud connected devices.
 
 ### Supported Devices
-This integration has been tested with the following devices:
-* [ThermoWorks Node Wi-Fi sensor](https://www.thermoworks.com/node/)
+See [Discussions - Device Interoperability](https://github.com/a2hill/ha-thermoworks-cloud/discussions/6)
 
 ## Installation
 ### HACS
@@ -17,6 +16,11 @@ If you have [HACS](https://hacs.xyz/) installed in your Home Assistant instance
 
 ### Manual Installation
 Copy the [custom_components/thermoworks_cloud](custom_components/) folder into the `config/custom_components` folder of your Home Assistant instance
+
+## Usage
+1. With this custom component installed into your HA instance, you will now see the ThermoWorks Cloud integration available as an integration that can be added (settings > Devices & services > Add Integration)
+1. After adding the integration, be sure to set the scan interval which will tell HA how often to request new data from ThermoWorks  
+    * The default is 1,800 second (30 minutes), however this may be too slow for real-time applications like grilling with RFX
 
 ## Also
 To pull data, this integration uses [python-thermoworks-cloud](https://github.com/a2hill/python-thermoworks-cloud)
