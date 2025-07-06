@@ -17,18 +17,6 @@
       "already_configured": "[%key:common::config_flow::abort::already_configured_account%]"
     }
   },
-  "options": {
-    "step": {
-      "init": {
-        "data": {
-          "scan_interval": "Scan interval (seconds)"
-        },
-        "data_description": {
-          "scan_interval": "How often to poll ThermoWorks for updates"
-        }
-      }
-    }
-  },
   "entity": {
     "sensor": {
       "battery": {
