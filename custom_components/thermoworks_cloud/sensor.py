@@ -99,11 +99,11 @@ async def async_setup_entry(
                 )
             )
 
-        if len(new_entities) > 0:
-            _LOGGER.debug("New entities created: %d", len(new_entities))
-            async_add_entities(new_entities)
-        else:
-            _LOGGER.debug("No new entities created")
+    if len(new_entities) > 0:
+        _LOGGER.debug("New entities to create: %d", len(new_entities))
+        async_add_entities(new_entities)
+    else:
+        _LOGGER.debug("No new entities created")
 
 
 class BatterySensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
