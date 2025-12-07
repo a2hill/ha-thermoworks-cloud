@@ -85,19 +85,39 @@ async def async_setup_entry(
             )
 
         for device_channel in coordinator.data.device_channels.get(device.get_identifier(), []):
-            new_entities.append(
-                TemperatureSensor(
-                    entity_id=async_generate_entity_id(
-                        ENTITY_ID_FORMAT,
-                        f"{device.get_identifier()}_ch_{
-                            device_channel.number}_temperature",
-                        hass=hass,
-                    ),
-                    coordinator=coordinator,
-                    device_serial=device.get_identifier(),
-                    device_channel=device_channel,
+            if device_channel.units == "H":
+                new_entities.append(
+                    HumiditySensor(
+                        entity_id=async_generate_entity_id(
+                            ENTITY_ID_FORMAT,
+                            f"{device.get_identifier()}_ch_{device_channel.number}_humidity",
+                            hass=hass,
+                        ),
+                        coordinator=coordinator,
+                        device_serial=device.get_identifier(),
+                        device_channel=device_channel,
+                    )
                 )
-            )
+            elif device_channel.units in ("F", "C"):
+                new_entities.append(
+                    TemperatureSensor(
+                        entity_id=async_generate_entity_id(
+                            ENTITY_ID_FORMAT,
+                            f"{device.get_identifier()}_ch_{device_channel.number}_temperature",
+                            hass=hass,
+                        ),
+                        coordinator=coordinator,
+                        device_serial=device.get_identifier(),
+                        device_channel=device_channel,
+                    )
+                )
+            else:
+                _LOGGER.warning(
+                    "Unsupported sensor unit '%s' for device %s channel %s - skipping",
+                    device_channel.units,
+                    device.display_name(),
+                    device_channel.display_name()
+                )
 
     if len(new_entities) > 0:
         _LOGGER.debug("New entities to create: %d", len(new_entities))
@@ -200,22 +220,14 @@ class BatterySensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
         return f"{DOMAIN}-{format_mac(self._device.get_identifier())}"
 
 
-class TemperatureSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
-    """Implementation of a thermoworks temperature sensor."""
+class ChannelSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
+    """Base class for thermoworks channel sensors."""
 
     _device_channel: ThermoworksChannel
 
-    # https://developers.home-assistant.io/docs/core/entity/sensor/#available-device-classes
-    _attr_device_class = SensorDeviceClass.TEMPERATURE
-
     # https://developers.home-assistant.io/docs/core/entity/sensor/#available-state-classes
     _attr_state_class = SensorStateClass.MEASUREMENT
-
-    # Naming
-    # https://developers.home-assistant.io/docs/core/entity#entity-naming
-    # https://developers.home-assistant.io/docs/internationalization/core/#name-of-entities
     _attr_has_entity_name = True
-    _attr_translation_key = "temperature"
 
     # API data is given at higher precision, but that isn't needed
     # https://developers.home-assistant.io/docs/core/entity/sensor#properties
@@ -283,20 +295,6 @@ class TemperatureSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity)
         # in Lovelace and HA will automatically calculate the correct value.
         return float(self._device_channel.value)
 
-    @property
-    def native_unit_of_measurement(self) -> str | None:
-        """Return unit of temperature."""
-        if self._device_channel.units is None:
-            return None
-        if self._device_channel.units == "F":
-            return UnitOfTemperature.FAHRENHEIT
-        if self._device_channel.units == "C":
-            return UnitOfTemperature.CELSIUS
-
-        raise ValueError(
-            f"Unable to determine unit of measurement from unit string '{
-                self._device_channel.units}'"
-        )
 
     @property
     def unique_id(self) -> str:
@@ -307,6 +305,46 @@ class TemperatureSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity)
             f"{DOMAIN}-{format_mac(self._device_serial)
                         }-{self._device_channel.number}"
         )
+
+class TemperatureSensor(ChannelSensor):
+    """Implementation of a thermoworks temperature sensor."""
+
+    # https://developers.home-assistant.io/docs/core/entity/sensor/#available-device-classes
+    _attr_device_class = SensorDeviceClass.TEMPERATURE
+
+    # Naming
+    # https://developers.home-assistant.io/docs/core/entity#entity-naming
+    # https://developers.home-assistant.io/docs/internationalization/core/#name-of-entities
+    _attr_translation_key = "temperature"
+
+    @property
+    def native_unit_of_measurement(self) -> str:
+        """Return unit of temperature."""
+        if self._device_channel.units == "F":
+            return UnitOfTemperature.FAHRENHEIT
+        if self._device_channel.units == "C":
+            return UnitOfTemperature.CELSIUS
+
+        raise ValueError(
+            f"Unable to determine unit of measurement from unit string '{
+                self._device_channel.units}'"
+        )
+
+
+class HumiditySensor(ChannelSensor):
+    """Implementation of a thermoworks humidity sensor."""
+
+    # https://developers.home-assistant.io/docs/core/entity/sensor/#available-device-classes
+    _attr_device_class = SensorDeviceClass.HUMIDITY
+
+    # Naming
+    # https://developers.home-assistant.io/docs/core/entity#entity-naming
+    # https://developers.home-assistant.io/docs/internationalization/core/#name-of-entities
+    _attr_translation_key = "humidity"
+
+    # API data is in percent
+    # https://developers.home-assistant.io/docs/core/entity/sensor#properties
+    _attr_native_unit_of_measurement = PERCENTAGE
 
 
 class SignalSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):

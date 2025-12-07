@@ -25,6 +25,9 @@
       "temperature": {
         "name": "{channel_name} Temperature"
       },
+      "humidity": {
+        "name": "{channel_name} Humidity"
+      },
       "signal": {
         "name": "[%key:component::sensor::entity_component::signal_strength::name%]"
       }
