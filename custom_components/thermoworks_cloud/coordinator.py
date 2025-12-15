@@ -68,6 +68,9 @@ class ThermoworksCoordinator(DataUpdateCoordinator[ThermoworksData]):
         This is the place to pre-process the data to lookup tables
         so entities can quickly look up their data.
         """
+        _LOGGER.debug(
+            "Polling ThermoWorks Cloud API (interval: %s seconds)", self.poll_interval
+        )
 
         try:
             if self.api is None:
