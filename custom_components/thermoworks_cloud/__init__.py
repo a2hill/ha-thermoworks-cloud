@@ -16,7 +16,7 @@ from .const import DOMAIN
 from .coordinator import ThermoworksCoordinator
 
 # The list of platforms provided by this integration
-PLATFORMS: list[Platform] = [Platform.SENSOR]
+PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.NUMBER]
 
 
 @dataclass
