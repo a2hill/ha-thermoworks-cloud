@@ -1,6 +1,7 @@
 """Models for Thermoworks Cloud integration."""
 
 from dataclasses import dataclass
+from datetime import datetime
 from types import NoneType
 from typing import Any, Optional, Protocol, Type, TypeGuard, Union, get_args, get_origin, get_type_hints
 from thermoworks_cloud.models import Device, DeviceChannel
@@ -48,6 +49,8 @@ class BaseDevice(Protocol):
     battery: Optional[float] = None
     battery_state: Optional[str] = None
     wifi_strength: Optional[float] = None
+    last_seen: Optional[datetime] = None
+    transmit_interval_in_seconds: Optional[int] = None
 
 
 @dataclass(frozen=True)
@@ -73,7 +76,9 @@ class ThermoworksDevice(BaseDevice):
             firmware=device.firmware,
             serial=device.serial,
             battery=device.battery,
-            wifi_strength=device.wifi_strength
+            wifi_strength=device.wifi_strength,
+            last_seen=device.last_seen,
+            transmit_interval_in_seconds=device.transmit_interval_in_seconds,
         )
 
     def get_identifier(self) -> str:
@@ -104,6 +109,26 @@ class DeviceWithWifi(ThermoworksDevice):
     def is_protocol_compliant(cls, obj: Any) -> TypeGuard["DeviceWithWifi"]:
         """Return True if the object implements DeviceWithWifi protocol."""
         return has_required_attributes(obj, DeviceWithWifi)
+
+
+class DeviceWithLastSeen(ThermoworksDevice):
+    """Protocol for devices with last_seen attribute."""
+    last_seen: datetime
+
+    @classmethod
+    def is_protocol_compliant(cls, obj: Any) -> TypeGuard["DeviceWithLastSeen"]:
+        """Return True if the object implements DeviceWithLastSeen protocol."""
+        return has_required_attributes(obj, DeviceWithLastSeen)
+
+
+class DeviceWithTransmitInterval(ThermoworksDevice):
+    """Protocol for devices with transmit interval attribute."""
+    transmit_interval_in_seconds: int
+
+    @classmethod
+    def is_protocol_compliant(cls, obj: Any) -> TypeGuard["DeviceWithTransmitInterval"]:
+        """Return True if the object implements DeviceWithTransmitInterval protocol."""
+        return has_required_attributes(obj, DeviceWithTransmitInterval)
 
 
 @dataclass

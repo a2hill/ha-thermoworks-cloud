@@ -22,6 +22,12 @@
       "battery": {
         "name": "[%key:component::sensor::entity_component::signal::name%]"
       },
+      "last_seen": {
+        "name": "Last Seen"
+      },
+      "transmit_interval": {
+        "name": "Transmit Interval"
+      },
       "temperature": {
         "name": "{channel_name} Temperature"
       },
@@ -30,7 +36,7 @@
       },
       "signal": {
         "name": "[%key:component::sensor::entity_component::signal_strength::name%]"
-      }
+    }
     }
   }
 }

@@ -9,8 +9,9 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import PERCENTAGE, SIGNAL_STRENGTH_DECIBELS, UnitOfTemperature
+from homeassistant.const import PERCENTAGE, SIGNAL_STRENGTH_DECIBELS, UnitOfTemperature, UnitOfTime
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.util import dt as dt_util
 from homeassistant.helpers.device_registry import format_mac, DeviceInfo
 from homeassistant.helpers.entity import async_generate_entity_id
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -20,6 +21,8 @@ from .const import DOMAIN
 
 from .models import (
     DeviceWithBattery,
+    DeviceWithLastSeen,
+    DeviceWithTransmitInterval,
     DeviceWithWifi,
     ThermoworksChannel,
     get_missing_attributes,
@@ -82,6 +85,44 @@ async def async_setup_entry(
                 "Not creating wifi sensor for device %s, "
                 "missing required attributes: %s", device.display_name(
                 ), get_missing_attributes(device, DeviceWithWifi)
+            )
+
+        if DeviceWithLastSeen.is_protocol_compliant(device):
+            new_entities.append(
+                LastSeenSensor(
+                    entity_id=async_generate_entity_id(
+                        ENTITY_ID_FORMAT,
+                        f"{device.get_identifier()}_last_seen",
+                        hass=hass,
+                    ),
+                    coordinator=coordinator,
+                    device=device,
+                )
+            )
+        else:
+            _LOGGER.debug(
+                "Not creating last_seen sensor for device %s, "
+                "missing required attributes: %s", device.display_name(),
+                get_missing_attributes(device, DeviceWithLastSeen)
+            )
+
+        if DeviceWithTransmitInterval.is_protocol_compliant(device):
+            new_entities.append(
+                TransmitIntervalSensor(
+                    entity_id=async_generate_entity_id(
+                        ENTITY_ID_FORMAT,
+                        f"{device.get_identifier()}_transmit_interval",
+                        hass=hass,
+                    ),
+                    coordinator=coordinator,
+                    device=device,
+                )
+            )
+        else:
+            _LOGGER.debug(
+                "Not creating transmit_interval sensor for device %s, "
+                "missing required attributes: %s", device.display_name(),
+                get_missing_attributes(device, DeviceWithTransmitInterval)
             )
 
         for device_channel in coordinator.data.device_channels.get(device.get_identifier(), []):
@@ -218,6 +259,119 @@ class BatterySensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
         # All entities must have a unique id.  Think carefully what you want this to be as
         # changing it later will cause HA to create new entities.
         return f"{DOMAIN}-{format_mac(self._device.get_identifier())}"
+
+
+class LastSeenSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
+    """Implementation of a last seen timestamp sensor."""
+
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_has_entity_name = True
+    _attr_translation_key = "last_seen"
+
+    def __init__(
+        self,
+        entity_id: str,
+        coordinator: ThermoworksCoordinator,
+        device: DeviceWithLastSeen,
+    ) -> None:
+        super().__init__(coordinator)
+        self.entity_id = entity_id
+        self._device = device
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        device = self.coordinator.get_device_by_id(self._device.get_identifier())
+        if not device:
+            raise UpdateFailed(
+                f"Cannot update sensor {self.name}: device {self._device.display_name()} is not found"
+            )
+        if not DeviceWithLastSeen.is_protocol_compliant(device):
+            raise UpdateFailed(
+                f"Cannot update sensor {self.name}: device {self._device.display_name()} is missing required "
+                f"attribute(s): {get_missing_attributes(device, DeviceWithLastSeen)}"
+            )
+        self._device = device
+        self.async_write_ha_state()
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        return DeviceInfo(
+            identifiers={
+                (
+                    DOMAIN,
+                    f"{format_mac(self._device.get_identifier())}",
+                )
+            }
+        )
+
+    @property
+    def native_value(self) -> str | None:
+        if self._device.last_seen is None:
+            return None
+
+        if hasattr(self._device.last_seen, "isoformat"):
+            return dt_util.as_utc(self._device.last_seen)
+
+        last_seen = dt_util.parse_datetime(str(self._device.last_seen))
+        return dt_util.as_utc(last_seen) if last_seen else None
+
+    @property
+    def unique_id(self) -> str:
+        return f"{DOMAIN}-{format_mac(self._device.get_identifier())}-last-seen"
+
+
+class TransmitIntervalSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
+    """Implementation of a transmit interval sensor."""
+
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = UnitOfTime.SECONDS
+    _attr_has_entity_name = True
+    _attr_translation_key = "transmit_interval"
+
+    def __init__(
+        self,
+        entity_id: str,
+        coordinator: ThermoworksCoordinator,
+        device: DeviceWithTransmitInterval,
+    ) -> None:
+        super().__init__(coordinator)
+        self.entity_id = entity_id
+        self._device = device
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        device = self.coordinator.get_device_by_id(self._device.get_identifier())
+        if not device:
+            raise UpdateFailed(
+                f"Cannot update sensor {self.name}: device {self._device.display_name()} is not found"
+            )
+        if not DeviceWithTransmitInterval.is_protocol_compliant(device):
+            raise UpdateFailed(
+                f"Cannot update sensor {self.name}: device {self._device.display_name()} is missing required "
+                f"attribute(s): {get_missing_attributes(device, DeviceWithTransmitInterval)}"
+            )
+        self._device = device
+        self.async_write_ha_state()
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        return DeviceInfo(
+            identifiers={
+                (
+                    DOMAIN,
+                    f"{format_mac(self._device.get_identifier())}",
+                )
+            }
+        )
+
+    @property
+    def native_value(self) -> int | None:
+        return self._device.transmit_interval_in_seconds
+
+    @property
+    def unique_id(self) -> str:
+        return f"{DOMAIN}-{format_mac(self._device.get_identifier())}-transmit-interval"
 
 
 class ChannelSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
