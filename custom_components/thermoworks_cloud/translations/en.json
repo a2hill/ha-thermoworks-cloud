@@ -10,5 +10,27 @@
         }
       }
     }
+  },
+  "entity": {
+    "sensor": {
+      "battery": {
+        "name": "Battery"
+      },
+      "last_seen": {
+        "name": "Last Seen"
+      },
+      "transmit_interval": {
+        "name": "Transmit Interval"
+      },
+      "temperature": {
+        "name": "{channel_name} Temperature"
+      },
+      "humidity": {
+        "name": "{channel_name} Humidity"
+      },
+      "signal": {
+        "name": "Signal Strength"
+      }
+    }
   }
 }

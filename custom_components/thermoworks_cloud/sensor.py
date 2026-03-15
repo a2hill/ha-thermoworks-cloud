@@ -265,7 +265,6 @@ class LastSeenSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
     """Implementation of a last seen timestamp sensor."""
 
     _attr_device_class = SensorDeviceClass.TIMESTAMP
-    _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_has_entity_name = True
     _attr_translation_key = "last_seen"
 
