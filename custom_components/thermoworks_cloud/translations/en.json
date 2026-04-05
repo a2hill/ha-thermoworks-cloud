@@ -1,4 +1,30 @@
 {
+  "config": {
+    "step": {
+      "user": {
+        "title": "Cloud Provider",
+        "description": "Select which cloud platform your devices are registered with.",
+        "data": {
+          "cloud_provider": "Cloud Provider"
+        }
+      },
+      "credentials": {
+        "title": "Account Credentials",
+        "data": {
+          "email": "Email",
+          "password": "Password"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect",
+      "invalid_auth": "Invalid authentication",
+      "unknown": "Unexpected error"
+    },
+    "abort": {
+      "already_configured": "Account is already configured"
+    }
+  },
   "options": {
     "step": {
       "init": {
@@ -6,7 +32,7 @@
           "scan_interval": "Scan interval (seconds)"
         },
         "data_description": {
-          "scan_interval": "How often to poll ThermoWorks for updates"
+          "scan_interval": "How often to poll for updates"
         }
       }
     }
