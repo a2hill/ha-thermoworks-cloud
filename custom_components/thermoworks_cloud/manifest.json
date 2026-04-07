@@ -14,7 +14,7 @@
     "thermoworks_cloud"
   ],
   "requirements": [
-    "thermoworks_cloud==0.1.12"
+    "thermoworks_cloud==0.1.13"
   ],
   "single_config_entry": false,
   "ssdp": [],

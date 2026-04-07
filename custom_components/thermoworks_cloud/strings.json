@@ -2,6 +2,14 @@
   "config": {
     "step": {
       "user": {
+        "title": "Cloud Provider",
+        "description": "Select which cloud platform your devices are registered with.",
+        "data": {
+          "cloud_provider": "Cloud Provider"
+        }
+      },
+      "credentials": {
+        "title": "Account Credentials",
         "data": {
           "email": "[%key:common::config_flow::data::email%]",
           "password": "[%key:common::config_flow::data::password%]"
