@@ -49,6 +49,7 @@ class BaseDevice(Protocol):
     battery: Optional[float] = None
     battery_state: Optional[str] = None
     wifi_strength: Optional[float] = None
+    signal_strength: Optional[float] = None
     last_seen: Optional[datetime] = None
     transmit_interval_in_seconds: Optional[int] = None
 
@@ -77,6 +78,7 @@ class ThermoworksDevice(BaseDevice):
             serial=device.serial,
             battery=device.battery,
             wifi_strength=device.wifi_strength,
+            signal_strength=device.signal_strength,
             last_seen=device.last_seen,
             transmit_interval_in_seconds=device.transmit_interval_in_seconds,
         )
@@ -101,14 +103,14 @@ class DeviceWithBattery(ThermoworksDevice):
         return has_required_attributes(obj, DeviceWithBattery)
 
 
-class DeviceWithWifi(ThermoworksDevice):
-    """Protocol for devices with WiFi capability."""
-    wifi_strength: float
+class DeviceWithSignalStrength(ThermoworksDevice):
+    """Protocol for devices with signal strength information."""
+    signal_strength: float
 
     @classmethod
-    def is_protocol_compliant(cls, obj: Any) -> TypeGuard["DeviceWithWifi"]:
-        """Return True if the object implements DeviceWithWifi protocol."""
-        return has_required_attributes(obj, DeviceWithWifi)
+    def is_protocol_compliant(cls, obj: Any) -> TypeGuard["DeviceWithSignalStrength"]:
+        """Return True if the object implements DeviceWithSignalStrength protocol."""
+        return has_required_attributes(obj, DeviceWithSignalStrength)
 
 
 class DeviceWithLastSeen(ThermoworksDevice):

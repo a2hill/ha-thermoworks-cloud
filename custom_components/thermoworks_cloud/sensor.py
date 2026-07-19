@@ -22,8 +22,8 @@ from .const import DOMAIN
 from .models import (
     DeviceWithBattery,
     DeviceWithLastSeen,
+    DeviceWithSignalStrength,
     DeviceWithTransmitInterval,
-    DeviceWithWifi,
     ThermoworksChannel,
     get_missing_attributes,
 )
@@ -67,8 +67,8 @@ async def async_setup_entry(
                 ), get_missing_attributes(device, DeviceWithBattery)
             )
 
-        # Only create signal sensor if the device has WiFi capability
-        if DeviceWithWifi.is_protocol_compliant(device):
+        # Only create signal sensor if the device reports signal strength
+        if DeviceWithSignalStrength.is_protocol_compliant(device):
             new_entities.append(
                 SignalSensor(
                     entity_id=async_generate_entity_id(
@@ -82,9 +82,9 @@ async def async_setup_entry(
             )
         else:
             _LOGGER.debug(
-                "Not creating wifi sensor for device %s, "
+                "Not creating signal sensor for device %s, "
                 "missing required attributes: %s", device.display_name(
-                ), get_missing_attributes(device, DeviceWithWifi)
+                ), get_missing_attributes(device, DeviceWithSignalStrength)
             )
 
         if DeviceWithLastSeen.is_protocol_compliant(device):
@@ -524,7 +524,7 @@ class SignalSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
         self,
         entity_id: str,
         coordinator: ThermoworksCoordinator,
-        device: DeviceWithWifi,
+        device: DeviceWithSignalStrength,
     ) -> None:
         """Initialise sensor."""
         super().__init__(coordinator)
@@ -540,10 +540,10 @@ class SignalSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
         if not device:
             raise UpdateFailed(
                 f"Cannot update sensor {self.name}: device {self._device.display_name()} is not found")
-        if not DeviceWithWifi.is_protocol_compliant(device):
+        if not DeviceWithSignalStrength.is_protocol_compliant(device):
             raise UpdateFailed(
                 f"Cannot update sensor {self.name}: device {self._device.display_name()} is missing required "
-                f"attribute(s): {get_missing_attributes(device, DeviceWithWifi)}")
+                f"attribute(s): {get_missing_attributes(device, DeviceWithSignalStrength)}")
         self._device = device
         self.async_write_ha_state()
 
@@ -567,7 +567,7 @@ class SignalSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
         """Return the state of the entity."""
         # Using native value and native unit of measurement, allows you to change units
         # in Lovelace and HA will automatically calculate the correct value.
-        return float(self._device.wifi_strength)
+        return float(self._device.signal_strength)
 
     @property
     def unique_id(self) -> str:
