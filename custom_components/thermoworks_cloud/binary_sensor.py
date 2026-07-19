@@ -215,7 +215,7 @@ class HighAlarmBinarySensor(AlarmBinarySensor):
     @property
     def name(self) -> str:
         """Return the name of the sensor."""
-        return f"{self._device_channel.display_name()} High Alarm Active"
+        return f"{self._device_channel.display_name()} High Alarm"
 
     @property
     def unique_id(self) -> str:
@@ -236,7 +236,7 @@ class LowAlarmBinarySensor(AlarmBinarySensor):
     @property
     def name(self) -> str:
         """Return the name of the sensor."""
-        return f"{self._device_channel.display_name()} Low Alarm Active"
+        return f"{self._device_channel.display_name()} Low Alarm"
 
     @property
     def unique_id(self) -> str:

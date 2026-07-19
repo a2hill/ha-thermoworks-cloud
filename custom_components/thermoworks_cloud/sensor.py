@@ -627,7 +627,7 @@ class HighAlarmThresholdSensor(AlarmThresholdSensor):
     @property
     def name(self) -> str:
         """Return the name of the sensor."""
-        return f"{self._device_channel.display_name()} High Alarm"
+        return f"{self._device_channel.display_name()} High Alarm Threshold"
 
     @property
     def unique_id(self) -> str:
@@ -648,7 +648,7 @@ class LowAlarmThresholdSensor(AlarmThresholdSensor):
     @property
     def name(self) -> str:
         """Return the name of the sensor."""
-        return f"{self._device_channel.display_name()} Low Alarm"
+        return f"{self._device_channel.display_name()} Low Alarm Threshold"
 
     @property
     def unique_id(self) -> str:

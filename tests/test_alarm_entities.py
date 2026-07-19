@@ -42,24 +42,28 @@ def test_alarm_entities_expose_thresholds_and_active_states() -> None:
         "binary_sensor.rfx_air_low_alarm", coordinator, "RFX123", channel
     )
 
+    assert high_threshold.name == "Air (Ch. 1) High Alarm Threshold"
     assert high_threshold.native_value == 175
     assert high_threshold.native_unit_of_measurement == UnitOfTemperature.FAHRENHEIT
     assert high_threshold.extra_state_attributes == {
         "enabled": True,
         "alarming": False,
     }
+    assert low_threshold.name == "Air (Ch. 1) Low Alarm Threshold"
     assert low_threshold.native_value == 125
     assert low_threshold.native_unit_of_measurement == UnitOfTemperature.FAHRENHEIT
     assert low_threshold.extra_state_attributes == {
         "enabled": True,
         "alarming": True,
     }
+    assert high_active.name == "Air (Ch. 1) High Alarm"
     assert high_active.is_on is False
     assert high_active.extra_state_attributes == {
         "enabled": True,
         "value": 175,
         "units": "F",
     }
+    assert low_active.name == "Air (Ch. 1) Low Alarm"
     assert low_active.is_on is True
     assert low_active.extra_state_attributes == {
         "enabled": True,

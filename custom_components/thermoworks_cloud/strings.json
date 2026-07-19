@@ -63,10 +63,10 @@
         "name": "Set Temperature"
       },
       "high_alarm_threshold": {
-        "name": "High Alarm"
+        "name": "High Alarm Threshold"
       },
       "low_alarm_threshold": {
-        "name": "Low Alarm"
+        "name": "Low Alarm Threshold"
       }
     }
   }
