@@ -21,6 +21,7 @@ from .const import DOMAIN
 
 from .models import (
     DeviceWithBattery,
+    DeviceWithFan,
     DeviceWithLastSeen,
     DeviceWithSignalStrength,
     DeviceWithTransmitInterval,
@@ -123,6 +124,36 @@ async def async_setup_entry(
                 "Not creating transmit_interval sensor for device %s, "
                 "missing required attributes: %s", device.display_name(),
                 get_missing_attributes(device, DeviceWithTransmitInterval)
+            )
+
+        if DeviceWithFan.is_protocol_compliant(device):
+            new_entities.extend(
+                [
+                    FanStateSensor(
+                        entity_id=async_generate_entity_id(
+                            ENTITY_ID_FORMAT,
+                            f"{device.get_identifier()}_fan_state",
+                            hass=hass,
+                        ),
+                        coordinator=coordinator,
+                        device=device,
+                    ),
+                    FanSetTemperatureSensor(
+                        entity_id=async_generate_entity_id(
+                            ENTITY_ID_FORMAT,
+                            f"{device.get_identifier()}_fan_set_temperature",
+                            hass=hass,
+                        ),
+                        coordinator=coordinator,
+                        device=device,
+                    ),
+                ]
+            )
+        else:
+            _LOGGER.debug(
+                "Not creating fan sensors for device %s, "
+                "missing required attributes: %s", device.display_name(),
+                get_missing_attributes(device, DeviceWithFan)
             )
 
         for device_channel in coordinator.data.device_channels.get(device.get_identifier(), []):
@@ -498,6 +529,117 @@ class HumiditySensor(ChannelSensor):
     # API data is in percent
     # https://developers.home-assistant.io/docs/core/entity/sensor#properties
     _attr_native_unit_of_measurement = PERCENTAGE
+
+
+class FanSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
+    """Base class for Thermoworks fan accessory sensors."""
+
+    _attr_has_entity_name = True
+
+    def __init__(
+        self,
+        entity_id: str,
+        coordinator: ThermoworksCoordinator,
+        device: DeviceWithFan,
+    ) -> None:
+        """Initialise sensor."""
+        super().__init__(coordinator)
+        self.entity_id = entity_id
+        self._device = device
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Update sensor with latest data from coordinator."""
+        device = self.coordinator.get_device_by_id(self._device.get_identifier())
+        if not device:
+            raise UpdateFailed(
+                f"Cannot update sensor {self.name}: device {self._device.display_name()} is not found"
+            )
+        if not DeviceWithFan.is_protocol_compliant(device):
+            raise UpdateFailed(
+                f"Cannot update sensor {self.name}: device {self._device.display_name()} is missing required "
+                f"attribute(s): {get_missing_attributes(device, DeviceWithFan)}"
+            )
+        self._device = device
+        self.async_write_ha_state()
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return fan device information."""
+        gateway_identifier = format_mac(self._device.get_identifier())
+        return DeviceInfo(
+            identifiers={(DOMAIN, f"{gateway_identifier}-fan")},
+            name=f"{self._device.label or self._device.display_name()} Fan",
+            manufacturer="ThermoWorks",
+            via_device=(DOMAIN, gateway_identifier),
+        )
+
+    @property
+    def available(self) -> bool:
+        """Return true if the fan accessory value is available."""
+        return super().available and self._device.fan.connected is True
+
+
+class FanStateSensor(FanSensor):
+    """Implementation of a Thermoworks fan state sensor."""
+
+    _attr_device_class = SensorDeviceClass.ENUM
+    _attr_options = ["Paused", "Blowing", "Pulsing"]
+    _attr_translation_key = "fan_state"
+
+    @property
+    def native_value(self) -> str | None:
+        """Return the fan state name."""
+        return self._device.fan.state_name
+
+    @property
+    def unique_id(self) -> str:
+        """Return unique id."""
+        return f"{DOMAIN}-{format_mac(self._device.get_identifier())}-fan-state"
+
+
+class FanSetTemperatureSensor(FanSensor):
+    """Implementation of a Thermoworks fan set temperature sensor."""
+
+    _attr_suggested_display_precision = 0
+    _attr_translation_key = "fan_set_temperature"
+
+    @property
+    def device_class(self) -> SensorDeviceClass | None:
+        """Return device class when the API reports a temperature unit."""
+        return (
+            SensorDeviceClass.TEMPERATURE
+            if self.native_unit_of_measurement is not None
+            else None
+        )
+
+    @property
+    def native_unit_of_measurement(self) -> str | None:
+        """Return unit of temperature."""
+        if self._device.device_display_units == "F":
+            return UnitOfTemperature.FAHRENHEIT
+        if self._device.device_display_units == "C":
+            return UnitOfTemperature.CELSIUS
+
+        return None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, str]:
+        """Return fan set temperature attributes."""
+        if self._device.fan.fan_channel is None:
+            return {}
+
+        return {"channel": self._device.fan.fan_channel}
+
+    @property
+    def native_value(self) -> int | None:
+        """Return the fan set temperature."""
+        return self._device.fan.set_temp
+
+    @property
+    def unique_id(self) -> str:
+        """Return unique id."""
+        return f"{DOMAIN}-{format_mac(self._device.get_identifier())}-fan-set-temperature"
 
 
 class SignalSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):

@@ -38,6 +38,11 @@
     }
   },
   "entity": {
+    "binary_sensor": {
+      "fan_connected": {
+        "name": "Connected"
+      }
+    },
     "sensor": {
       "battery": {
         "name": "Battery"
@@ -56,6 +61,12 @@
       },
       "signal": {
         "name": "Signal Strength"
+      },
+      "fan_state": {
+        "name": "State"
+      },
+      "fan_set_temperature": {
+        "name": "Set Temperature"
       }
     }
   }

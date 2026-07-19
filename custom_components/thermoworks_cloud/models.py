@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from types import NoneType
 from typing import Any, Optional, Protocol, Type, TypeGuard, Union, get_args, get_origin, get_type_hints
-from thermoworks_cloud.models import Device, DeviceChannel
+from thermoworks_cloud.models import Device, DeviceChannel, Fan
 
 from .exceptions import MissingRequiredAttributeError
 
@@ -45,11 +45,13 @@ class BaseDevice(Protocol):
     device_id: Optional[str] = None
     label: Optional[str] = None
     device_name: Optional[str] = None
+    device_display_units: Optional[str] = None
     firmware: Optional[str] = None
     battery: Optional[float] = None
     battery_state: Optional[str] = None
     wifi_strength: Optional[float] = None
     signal_strength: Optional[float] = None
+    fan: Optional[Fan] = None
     last_seen: Optional[datetime] = None
     transmit_interval_in_seconds: Optional[int] = None
 
@@ -74,11 +76,13 @@ class ThermoworksDevice(BaseDevice):
             device_id=getattr(device, 'device_id', None),
             label=device.label,
             device_name=device.device_name,
+            device_display_units=getattr(device, "device_display_units", None),
             firmware=device.firmware,
             serial=device.serial,
             battery=device.battery,
             wifi_strength=device.wifi_strength,
             signal_strength=device.signal_strength,
+            fan=getattr(device, "fan", None),
             last_seen=device.last_seen,
             transmit_interval_in_seconds=device.transmit_interval_in_seconds,
         )
@@ -111,6 +115,16 @@ class DeviceWithSignalStrength(ThermoworksDevice):
     def is_protocol_compliant(cls, obj: Any) -> TypeGuard["DeviceWithSignalStrength"]:
         """Return True if the object implements DeviceWithSignalStrength protocol."""
         return has_required_attributes(obj, DeviceWithSignalStrength)
+
+
+class DeviceWithFan(ThermoworksDevice):
+    """Protocol for devices with fan accessory information."""
+    fan: Fan
+
+    @classmethod
+    def is_protocol_compliant(cls, obj: Any) -> TypeGuard["DeviceWithFan"]:
+        """Return True if the object implements DeviceWithFan protocol."""
+        return has_required_attributes(obj, DeviceWithFan)
 
 
 class DeviceWithLastSeen(ThermoworksDevice):
