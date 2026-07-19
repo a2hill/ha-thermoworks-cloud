@@ -20,6 +20,8 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity, UpdateFa
 from .const import DOMAIN
 
 from .models import (
+    ChannelWithHighAlarm,
+    ChannelWithLowAlarm,
     DeviceWithBattery,
     DeviceWithFan,
     DeviceWithLastSeen,
@@ -189,6 +191,34 @@ async def async_setup_entry(
                     device_channel.units,
                     device.display_name(),
                     device_channel.display_name()
+                )
+
+            if ChannelWithHighAlarm.is_protocol_compliant(device_channel):
+                new_entities.append(
+                    HighAlarmThresholdSensor(
+                        entity_id=async_generate_entity_id(
+                            ENTITY_ID_FORMAT,
+                            f"{device.get_identifier()}_ch_{device_channel.number}_high_alarm_threshold",
+                            hass=hass,
+                        ),
+                        coordinator=coordinator,
+                        device_serial=device.get_identifier(),
+                        device_channel=device_channel,
+                    )
+                )
+
+            if ChannelWithLowAlarm.is_protocol_compliant(device_channel):
+                new_entities.append(
+                    LowAlarmThresholdSensor(
+                        entity_id=async_generate_entity_id(
+                            ENTITY_ID_FORMAT,
+                            f"{device.get_identifier()}_ch_{device_channel.number}_low_alarm_threshold",
+                            hass=hass,
+                        ),
+                        coordinator=coordinator,
+                        device_serial=device.get_identifier(),
+                        device_channel=device_channel,
+                    )
                 )
 
     if len(new_entities) > 0:
@@ -529,6 +559,101 @@ class HumiditySensor(ChannelSensor):
     # API data is in percent
     # https://developers.home-assistant.io/docs/core/entity/sensor#properties
     _attr_native_unit_of_measurement = PERCENTAGE
+
+
+class AlarmThresholdSensor(ChannelSensor):
+    """Base class for Thermoworks channel alarm threshold sensors."""
+
+    _attr_suggested_display_precision = 0
+
+    @property
+    def device_class(self) -> SensorDeviceClass | None:
+        """Return the alarm threshold device class."""
+        if self.native_unit_of_measurement in (
+            UnitOfTemperature.FAHRENHEIT,
+            UnitOfTemperature.CELSIUS,
+        ):
+            return SensorDeviceClass.TEMPERATURE
+        if self.native_unit_of_measurement == PERCENTAGE:
+            return SensorDeviceClass.HUMIDITY
+
+        return None
+
+    @property
+    def native_unit_of_measurement(self) -> str | None:
+        """Return alarm threshold unit."""
+        if self._alarm is None:
+            return None
+        if self._alarm.units == "F":
+            return UnitOfTemperature.FAHRENHEIT
+        if self._alarm.units == "C":
+            return UnitOfTemperature.CELSIUS
+        if self._alarm.units == "H":
+            return PERCENTAGE
+
+        return None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, bool | None]:
+        """Return alarm metadata."""
+        if self._alarm is None:
+            return {
+                "enabled": None,
+                "alarming": None,
+            }
+        return {
+            "enabled": self._alarm.enabled,
+            "alarming": self._alarm.alarming,
+        }
+
+    @property
+    def native_value(self) -> int | None:
+        """Return the configured alarm threshold."""
+        if self._alarm is None:
+            return None
+        return self._alarm.value
+
+
+class HighAlarmThresholdSensor(AlarmThresholdSensor):
+    """Implementation of a Thermoworks channel high alarm threshold sensor."""
+
+    _attr_translation_key = "high_alarm_threshold"
+
+    @property
+    def _alarm(self):
+        """Return high alarm data."""
+        return self._device_channel.alarm_high
+
+    @property
+    def name(self) -> str:
+        """Return the name of the sensor."""
+        return f"{self._device_channel.display_name()} High Alarm"
+
+    @property
+    def unique_id(self) -> str:
+        """Return unique id."""
+        return f"{DOMAIN}-{format_mac(self._device_serial)}-{self._device_channel.number}-high-alarm-threshold"
+
+
+class LowAlarmThresholdSensor(AlarmThresholdSensor):
+    """Implementation of a Thermoworks channel low alarm threshold sensor."""
+
+    _attr_translation_key = "low_alarm_threshold"
+
+    @property
+    def _alarm(self):
+        """Return low alarm data."""
+        return self._device_channel.alarm_low
+
+    @property
+    def name(self) -> str:
+        """Return the name of the sensor."""
+        return f"{self._device_channel.display_name()} Low Alarm"
+
+    @property
+    def unique_id(self) -> str:
+        """Return unique id."""
+        return f"{DOMAIN}-{format_mac(self._device_serial)}-{self._device_channel.number}-low-alarm-threshold"
 
 
 class FanSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):

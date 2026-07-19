@@ -29,6 +29,12 @@
     "binary_sensor": {
       "fan_connected": {
         "name": "Connected"
+      },
+      "high_alarm": {
+        "name": "High Alarm"
+      },
+      "low_alarm": {
+        "name": "Low Alarm"
       }
     },
     "sensor": {
@@ -55,6 +61,12 @@
       },
       "fan_set_temperature": {
         "name": "Set Temperature"
+      },
+      "high_alarm_threshold": {
+        "name": "High Alarm"
+      },
+      "low_alarm_threshold": {
+        "name": "Low Alarm"
       }
     }
   }

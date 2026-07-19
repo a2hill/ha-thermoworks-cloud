@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from types import NoneType
 from typing import Any, Optional, Protocol, Type, TypeGuard, Union, get_args, get_origin, get_type_hints
-from thermoworks_cloud.models import Device, DeviceChannel, Fan
+from thermoworks_cloud.models import Alarm, Device, DeviceChannel, Fan
 
 from .exceptions import MissingRequiredAttributeError
 
@@ -156,6 +156,8 @@ class ThermoworksChannel:
     units: str
     status: Optional[str]
     label: Optional[str]
+    alarm_high: Optional[Alarm] = None
+    alarm_low: Optional[Alarm] = None
 
     @classmethod
     def is_thermoworks_channel(cls, obj: Any) -> TypeGuard["ThermoworksChannel"]:
@@ -175,10 +177,32 @@ class ThermoworksChannel:
             value=channel.value,
             units=channel.units,
             status=channel.status,
-            label=channel.label
+            label=channel.label,
+            alarm_high=getattr(channel, "alarm_high", None),
+            alarm_low=getattr(channel, "alarm_low", None),
         )
 
     def display_name(self) -> str:
         """Return the display name of the channel."""
         # {user given name} (Ch. {channel number})
         return f"{self.label or "unnamed channel"} (Ch. {self.number})"
+
+
+class ChannelWithHighAlarm(ThermoworksChannel):
+    """Protocol for channels with high alarm information."""
+    alarm_high: Alarm
+
+    @classmethod
+    def is_protocol_compliant(cls, obj: Any) -> TypeGuard["ChannelWithHighAlarm"]:
+        """Return True if the object implements ChannelWithHighAlarm protocol."""
+        return has_required_attributes(obj, ChannelWithHighAlarm)
+
+
+class ChannelWithLowAlarm(ThermoworksChannel):
+    """Protocol for channels with low alarm information."""
+    alarm_low: Alarm
+
+    @classmethod
+    def is_protocol_compliant(cls, obj: Any) -> TypeGuard["ChannelWithLowAlarm"]:
+        """Return True if the object implements ChannelWithLowAlarm protocol."""
+        return has_required_attributes(obj, ChannelWithLowAlarm)

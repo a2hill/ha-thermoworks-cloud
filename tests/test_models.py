@@ -2,11 +2,14 @@
 
 from types import SimpleNamespace
 
-from thermoworks_cloud.models import Fan
+from thermoworks_cloud.models import Alarm, DeviceChannel, Fan
 
 from custom_components.thermoworks_cloud.models import (
+    ChannelWithHighAlarm,
+    ChannelWithLowAlarm,
     DeviceWithFan,
     DeviceWithSignalStrength,
+    ThermoworksChannel,
     ThermoworksDevice,
 )
 
@@ -72,3 +75,25 @@ def test_from_api_device_preserves_fan() -> None:
     assert device.fan.state_name == "Blowing"
     assert device.device_display_units == "F"
     assert DeviceWithFan.is_protocol_compliant(device)
+
+
+def test_from_api_channel_preserves_alarms() -> None:
+    """The integration copies channel alarm data from the library."""
+    high_alarm = Alarm(enabled=True, alarming=False, value=175, units="F")
+    low_alarm = Alarm(enabled=True, alarming=True, value=125, units="F")
+    api_channel = DeviceChannel(
+        number="1",
+        value=150,
+        units="F",
+        status="ok",
+        label="Air",
+        alarm_high=high_alarm,
+        alarm_low=low_alarm,
+    )
+
+    channel = ThermoworksChannel.from_api_channel(api_channel)
+
+    assert channel.alarm_high == high_alarm
+    assert channel.alarm_low == low_alarm
+    assert ChannelWithHighAlarm.is_protocol_compliant(channel)
+    assert ChannelWithLowAlarm.is_protocol_compliant(channel)
