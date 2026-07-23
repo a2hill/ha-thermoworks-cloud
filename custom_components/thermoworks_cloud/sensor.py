@@ -9,7 +9,7 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import PERCENTAGE, SIGNAL_STRENGTH_DECIBELS, UnitOfTemperature, UnitOfTime
+from homeassistant.const import PERCENTAGE, SIGNAL_STRENGTH_DECIBELS_MILLIWATT, UnitOfTemperature, UnitOfTime
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.util import dt as dt_util
 from homeassistant.helpers.device_registry import format_mac, DeviceInfo
@@ -784,7 +784,7 @@ class SignalSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
 
     # API data is in negative decibels with no decimal place
     # https://developers.home-assistant.io/docs/core/entity/sensor#properties
-    _attr_native_unit_of_measurement = SIGNAL_STRENGTH_DECIBELS
+    _attr_native_unit_of_measurement = SIGNAL_STRENGTH_DECIBELS_MILLIWATT
     _attr_suggested_display_precision = 0
 
     def __init__(
