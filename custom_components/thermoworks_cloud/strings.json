@@ -37,6 +37,11 @@
         "name": "Low Alarm"
       }
     },
+    "number": {
+      "scan_interval": {
+        "name": "Scan interval"
+      }
+    },
     "sensor": {
       "battery": {
         "name": "[%key:component::sensor::entity_component::signal::name%]"

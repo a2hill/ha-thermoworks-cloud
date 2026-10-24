@@ -82,6 +82,10 @@ class ThermoworksCoordinator(DataUpdateCoordinator[ThermoworksData]):
         so entities can quickly look up their data.
         """
 
+        _LOGGER.debug(
+            "Polling ThermoWorks Cloud API (interval: %s seconds)", self.poll_interval
+        )
+
         try:
             if self.api is None:
                 # Do not need to worry about invalid credentials here as they have been
