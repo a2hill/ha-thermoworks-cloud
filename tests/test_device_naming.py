@@ -33,6 +33,7 @@ from custom_components.thermoworks_cloud.sensor import (
 )
 def test_device_names_preserve_cloud_labels_and_fan_fallback(label, fan_name):
     """Preserve labels verbatim; only the fan supplies its own fallback name."""
+    # Setup
     coordinator = SimpleNamespace()
     device = ThermoworksDevice(
         serial="RFX123", label=label, device_name="RFX Gateway", fan=Fan(connected=True)
@@ -40,8 +41,13 @@ def test_device_names_preserve_cloud_labels_and_fan_fallback(label, fan_name):
     battery = BatterySensor("sensor.battery", coordinator, device)
     fan = FanStateSensor("sensor.fan", coordinator, device)
 
-    assert battery.device_info["name"] == label
-    assert fan.device_info["name"] == fan_name
+    # Act
+    battery_name = battery.device_info["name"]
+    actual_fan_name = fan.device_info["name"]
+
+    # Assert
+    assert battery_name == label
+    assert actual_fan_name == fan_name
 
 
 @pytest.mark.parametrize(
@@ -67,12 +73,17 @@ def test_channel_names_preserve_existing_case_and_fallbacks(
     entity_class, suffix, label, reading_name, alarm_name
 ):
     """Reading names and alarm names currently use different capitalization."""
+    # Setup
     channel = ThermoworksChannel(
         number="1", value=100, units="F", status="ok", label=label
     )
     entity = entity_class("sensor.channel", SimpleNamespace(), "RFX123", channel)
 
-    assert entity.name == (alarm_name + suffix if suffix else reading_name)
+    # Act
+    name = entity.name
+
+    # Assert
+    assert name == (alarm_name + suffix if suffix else reading_name)
 
 
 @pytest.mark.parametrize(
@@ -83,6 +94,7 @@ def test_entity_identity_and_device_grouping_survive_device_id_fallback(
     device_id, expected_identifier
 ):
     """Existing installations depend on these IDs and device associations."""
+    # Setup
     coordinator = SimpleNamespace()
     device = ThermoworksDevice(
         serial="RFX123", device_id=device_id, fan=Fan(connected=True)
@@ -96,12 +108,19 @@ def test_entity_identity_and_device_grouping_survive_device_id_fallback(
     )
     fan = FanStateSensor("sensor.fan", coordinator, device)
 
+    # Act
+    battery_identifiers = battery.device_info["identifiers"]
+    temperature_identifiers = temperature.device_info["identifiers"]
+    fan_identifiers = fan.device_info["identifiers"]
+    battery_unique_id = battery.unique_id
+    temperature_unique_id = temperature.unique_id
+    fan_unique_id = fan.unique_id
+
+    # Assert
     parent = {("thermoworks_cloud", expected_identifier)}
-    assert battery.device_info["identifiers"] == parent
-    assert temperature.device_info["identifiers"] == parent
-    assert fan.device_info["identifiers"] == {
-        ("thermoworks_cloud", f"{expected_identifier}-fan")
-    }
-    assert battery.unique_id == f"thermoworks_cloud-{expected_identifier}"
-    assert temperature.unique_id == f"thermoworks_cloud-{expected_identifier}-1"
-    assert fan.unique_id == f"thermoworks_cloud-{expected_identifier}-fan-state"
+    assert battery_identifiers == parent
+    assert temperature_identifiers == parent
+    assert fan_identifiers == {("thermoworks_cloud", f"{expected_identifier}-fan")}
+    assert battery_unique_id == f"thermoworks_cloud-{expected_identifier}"
+    assert temperature_unique_id == f"thermoworks_cloud-{expected_identifier}-1"
+    assert fan_unique_id == f"thermoworks_cloud-{expected_identifier}-fan-state"
