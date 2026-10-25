@@ -38,16 +38,14 @@ def test_device_names_preserve_cloud_labels_and_fan_fallback(label, fan_name):
     device = ThermoworksDevice(
         serial="RFX123", label=label, device_name="RFX Gateway", fan=Fan(connected=True)
     )
+
+    # Act
     battery = BatterySensor("sensor.battery", coordinator, device)
     fan = FanStateSensor("sensor.fan", coordinator, device)
 
-    # Act
-    battery_name = battery.device_info["name"]
-    actual_fan_name = fan.device_info["name"]
-
     # Assert
-    assert battery_name == label
-    assert actual_fan_name == fan_name
+    assertEqual(battery.device_info["name"], label)
+    assertEqual(fan.device_info["name"], fan_name)
 
 
 @pytest.mark.parametrize(
