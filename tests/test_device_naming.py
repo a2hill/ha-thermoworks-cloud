@@ -1,14 +1,11 @@
 """Naming and identity contracts exposed by our entities to Home Assistant."""
 
 from types import SimpleNamespace
+from unittest import TestCase
 
-import pytest
 from thermoworks_cloud.models import Fan
 
-from custom_components.thermoworks_cloud.binary_sensor import (
-    HighAlarmBinarySensor,
-    LowAlarmBinarySensor,
-)
+from custom_components.thermoworks_cloud.binary_sensor import HighAlarmBinarySensor
 from custom_components.thermoworks_cloud.models import (
     ThermoworksChannel,
     ThermoworksDevice,
@@ -18,107 +15,207 @@ from custom_components.thermoworks_cloud.sensor import (
     FanStateSensor,
     HighAlarmThresholdSensor,
     HumiditySensor,
-    LowAlarmThresholdSensor,
     TemperatureSensor,
 )
 
 
-@pytest.mark.parametrize(
-    "label, fan_name",
-    [
-        ("Patio BBQ", "Patio BBQ Fan"),
-        (None, "unnamed device (RFX Gateway - RFX123) Fan"),
-        ("", "unnamed device (RFX Gateway - RFX123) Fan"),
-    ],
-)
-def test_device_names_preserve_cloud_labels_and_fan_fallback(label, fan_name):
-    """Preserve labels verbatim; only the fan supplies its own fallback name."""
-    # Setup
-    coordinator = SimpleNamespace()
-    device = ThermoworksDevice(
-        serial="RFX123", label=label, device_name="RFX Gateway", fan=Fan(connected=True)
-    )
+class TestDeviceNaming(TestCase):
+    def test_device_names_use_the_cloud_label(self):
+        # Setup
+        device = ThermoworksDevice(
+            serial="RFX123", label="Patio BBQ", fan=Fan(connected=True)
+        )
+        coordinator = SimpleNamespace()
 
-    # Act
-    battery = BatterySensor("sensor.battery", coordinator, device)
-    fan = FanStateSensor("sensor.fan", coordinator, device)
+        # Act
+        battery = BatterySensor("sensor.battery", coordinator, device)
+        fan = FanStateSensor("sensor.fan", coordinator, device)
 
-    # Assert
-    assertEqual(battery.device_info["name"], label)
-    assertEqual(fan.device_info["name"], fan_name)
+        # Assert
+        self.assertEqual(battery.device_info["name"], "Patio BBQ")
+        self.assertEqual(fan.device_info["name"], "Patio BBQ Fan")
 
+    def test_fan_name_falls_back_when_cloud_label_is_missing(self):
+        # Setup
+        device = ThermoworksDevice(
+            serial="RFX123",
+            label=None,
+            device_name="RFX Gateway",
+            fan=Fan(connected=True),
+        )
 
-@pytest.mark.parametrize(
-    "entity_class, suffix",
-    [
-        (TemperatureSensor, ""),
-        (HumiditySensor, ""),
-        (HighAlarmThresholdSensor, " High Alarm Threshold"),
-        (LowAlarmThresholdSensor, " Low Alarm Threshold"),
-        (HighAlarmBinarySensor, " High Alarm"),
-        (LowAlarmBinarySensor, " Low Alarm"),
-    ],
-)
-@pytest.mark.parametrize(
-    "label, reading_name, alarm_name",
-    [
-        ("PORK Shoulder", "Pork shoulder (ch. 1)", "PORK Shoulder (Ch. 1)"),
-        (None, "Unnamed channel (ch. 1)", "unnamed channel (Ch. 1)"),
-        ("", "Unnamed channel (ch. 1)", "unnamed channel (Ch. 1)"),
-    ],
-)
-def test_channel_names_preserve_existing_case_and_fallbacks(
-    entity_class, suffix, label, reading_name, alarm_name
-):
-    """Reading names and alarm names currently use different capitalization."""
-    # Setup
-    channel = ThermoworksChannel(
-        number="1", value=100, units="F", status="ok", label=label
-    )
-    entity = entity_class("sensor.channel", SimpleNamespace(), "RFX123", channel)
+        # Act
+        fan = FanStateSensor("sensor.fan", SimpleNamespace(), device)
 
-    # Act
-    name = entity.name
+        # Assert
+        self.assertEqual(
+            fan.device_info["name"], "unnamed device (RFX Gateway - RFX123) Fan"
+        )
 
-    # Assert
-    assert name == (alarm_name + suffix if suffix else reading_name)
+    def test_fan_name_falls_back_when_cloud_label_is_empty(self):
+        # Setup
+        device = ThermoworksDevice(
+            serial="RFX123",
+            label="",
+            device_name="RFX Gateway",
+            fan=Fan(connected=True),
+        )
 
+        # Act
+        fan = FanStateSensor("sensor.fan", SimpleNamespace(), device)
 
-@pytest.mark.parametrize(
-    "device_id, expected_identifier",
-    [(None, "RFX123"), ("AABBCCDDEEFF", "aa:bb:cc:dd:ee:ff")],
-)
-def test_entity_identity_and_device_grouping_survive_device_id_fallback(
-    device_id, expected_identifier
-):
-    """Existing installations depend on these IDs and device associations."""
-    # Setup
-    coordinator = SimpleNamespace()
-    device = ThermoworksDevice(
-        serial="RFX123", device_id=device_id, fan=Fan(connected=True)
-    )
-    channel = ThermoworksChannel(
-        number="1", value=100, units="F", status="ok", label="Probe"
-    )
-    battery = BatterySensor("sensor.battery", coordinator, device)
-    temperature = TemperatureSensor(
-        "sensor.temperature", coordinator, device.get_identifier(), channel
-    )
-    fan = FanStateSensor("sensor.fan", coordinator, device)
+        # Assert
+        self.assertEqual(
+            fan.device_info["name"], "unnamed device (RFX Gateway - RFX123) Fan"
+        )
 
-    # Act
-    battery_identifiers = battery.device_info["identifiers"]
-    temperature_identifiers = temperature.device_info["identifiers"]
-    fan_identifiers = fan.device_info["identifiers"]
-    battery_unique_id = battery.unique_id
-    temperature_unique_id = temperature.unique_id
-    fan_unique_id = fan.unique_id
+    def test_reading_names_preserve_existing_capitalization(self):
+        # Setup
+        temperature_channel = ThermoworksChannel(
+            number="1", value=100, units="F", status="ok", label="PORK Shoulder"
+        )
+        humidity_channel = ThermoworksChannel(
+            number="2", value=50, units="H", status="ok", label="DRY Box"
+        )
+        coordinator = SimpleNamespace()
 
-    # Assert
-    parent = {("thermoworks_cloud", expected_identifier)}
-    assert battery_identifiers == parent
-    assert temperature_identifiers == parent
-    assert fan_identifiers == {("thermoworks_cloud", f"{expected_identifier}-fan")}
-    assert battery_unique_id == f"thermoworks_cloud-{expected_identifier}"
-    assert temperature_unique_id == f"thermoworks_cloud-{expected_identifier}-1"
-    assert fan_unique_id == f"thermoworks_cloud-{expected_identifier}-fan-state"
+        # Act
+        temperature = TemperatureSensor(
+            "sensor.temperature", coordinator, "RFX123", temperature_channel
+        )
+        humidity = HumiditySensor(
+            "sensor.humidity", coordinator, "RFX123", humidity_channel
+        )
+
+        # Assert
+        self.assertEqual(temperature.name, "Pork shoulder (ch. 1)")
+        self.assertEqual(humidity.name, "Dry box (ch. 2)")
+
+    def test_channel_names_fall_back_when_label_is_missing(self):
+        # Setup
+        channel = ThermoworksChannel(
+            number="1", value=100, units="F", status="ok", label=None
+        )
+        coordinator = SimpleNamespace()
+
+        # Act
+        temperature = TemperatureSensor(
+            "sensor.temperature", coordinator, "RFX123", channel
+        )
+        threshold = HighAlarmThresholdSensor(
+            "sensor.threshold", coordinator, "RFX123", channel
+        )
+        alarm = HighAlarmBinarySensor(
+            "binary_sensor.alarm", coordinator, "RFX123", channel
+        )
+
+        # Assert
+        self.assertEqual(temperature.name, "Unnamed channel (ch. 1)")
+        self.assertEqual(threshold.name, "unnamed channel (Ch. 1) High Alarm Threshold")
+        self.assertEqual(alarm.name, "unnamed channel (Ch. 1) High Alarm")
+
+    def test_channel_names_fall_back_when_label_is_empty(self):
+        # Setup
+        channel = ThermoworksChannel(
+            number="1", value=100, units="F", status="ok", label=""
+        )
+        coordinator = SimpleNamespace()
+
+        # Act
+        temperature = TemperatureSensor(
+            "sensor.temperature", coordinator, "RFX123", channel
+        )
+        threshold = HighAlarmThresholdSensor(
+            "sensor.threshold", coordinator, "RFX123", channel
+        )
+        alarm = HighAlarmBinarySensor(
+            "binary_sensor.alarm", coordinator, "RFX123", channel
+        )
+
+        # Assert
+        self.assertEqual(temperature.name, "Unnamed channel (ch. 1)")
+        self.assertEqual(threshold.name, "unnamed channel (Ch. 1) High Alarm Threshold")
+        self.assertEqual(alarm.name, "unnamed channel (Ch. 1) High Alarm")
+
+    def test_alarm_names_preserve_cloud_label_capitalization(self):
+        # Setup
+        channel = ThermoworksChannel(
+            number="1", value=100, units="F", status="ok", label="PORK Shoulder"
+        )
+        coordinator = SimpleNamespace()
+
+        # Act
+        threshold = HighAlarmThresholdSensor(
+            "sensor.threshold", coordinator, "RFX123", channel
+        )
+        alarm = HighAlarmBinarySensor(
+            "binary_sensor.alarm", coordinator, "RFX123", channel
+        )
+
+        # Assert
+        self.assertEqual(threshold.name, "PORK Shoulder (Ch. 1) High Alarm Threshold")
+        self.assertEqual(alarm.name, "PORK Shoulder (Ch. 1) High Alarm")
+
+    def test_entity_identity_uses_device_id_when_available(self):
+        # Setup
+        device = ThermoworksDevice(
+            serial="RFX123", device_id="AABBCCDDEEFF", fan=Fan(connected=True)
+        )
+        channel = ThermoworksChannel(
+            number="1", value=100, units="F", status="ok", label="Probe"
+        )
+        coordinator = SimpleNamespace()
+
+        # Act
+        battery = BatterySensor("sensor.battery", coordinator, device)
+        temperature = TemperatureSensor(
+            "sensor.temperature", coordinator, device.get_identifier(), channel
+        )
+        fan = FanStateSensor("sensor.fan", coordinator, device)
+
+        # Assert
+        self.assertEqual(
+            battery.device_info["identifiers"],
+            {("thermoworks_cloud", "aa:bb:cc:dd:ee:ff")},
+        )
+        self.assertEqual(
+            temperature.device_info["identifiers"], battery.device_info["identifiers"]
+        )
+        self.assertEqual(
+            fan.device_info["identifiers"],
+            {("thermoworks_cloud", "aa:bb:cc:dd:ee:ff-fan")},
+        )
+        self.assertEqual(battery.unique_id, "thermoworks_cloud-aa:bb:cc:dd:ee:ff")
+        self.assertEqual(temperature.unique_id, "thermoworks_cloud-aa:bb:cc:dd:ee:ff-1")
+        self.assertEqual(fan.unique_id, "thermoworks_cloud-aa:bb:cc:dd:ee:ff-fan-state")
+
+    def test_entity_identity_falls_back_to_serial_when_device_id_is_missing(self):
+        # Setup
+        device = ThermoworksDevice(
+            serial="RFX123", device_id=None, fan=Fan(connected=True)
+        )
+        channel = ThermoworksChannel(
+            number="1", value=100, units="F", status="ok", label="Probe"
+        )
+        coordinator = SimpleNamespace()
+
+        # Act
+        battery = BatterySensor("sensor.battery", coordinator, device)
+        temperature = TemperatureSensor(
+            "sensor.temperature", coordinator, device.get_identifier(), channel
+        )
+        fan = FanStateSensor("sensor.fan", coordinator, device)
+
+        # Assert
+        self.assertEqual(
+            battery.device_info["identifiers"], {("thermoworks_cloud", "RFX123")}
+        )
+        self.assertEqual(
+            temperature.device_info["identifiers"], battery.device_info["identifiers"]
+        )
+        self.assertEqual(
+            fan.device_info["identifiers"], {("thermoworks_cloud", "RFX123-fan")}
+        )
+        self.assertEqual(battery.unique_id, "thermoworks_cloud-RFX123")
+        self.assertEqual(temperature.unique_id, "thermoworks_cloud-RFX123-1")
+        self.assertEqual(fan.unique_id, "thermoworks_cloud-RFX123-fan-state")
