@@ -49,10 +49,10 @@ async def async_setup_entry(
                     ),
                     coordinator=coordinator,
                     device=device,
-                    identifier=f"{device_identifier}-fan", 
+                    identifier=fan_device_identifier,
                 )
             )
-            
+
         for device_channel in coordinator.data.device_channels.get(
             device_identifier, []
         ):
