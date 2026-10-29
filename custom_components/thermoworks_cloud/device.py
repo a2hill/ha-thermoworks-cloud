@@ -1,7 +1,7 @@
 """Device identity, metadata, and registration for ThermoWorks Cloud.
 
-Metadata describes devices in the registry. References associate entities with
-those devices using identifiers only. Both use Home Assistant's DeviceInfo type.
+Metadata describes devices registered centrally. Entities use the same device
+identifiers to associate themselves with those registry records.
 """
 
 from collections.abc import Iterable
@@ -25,20 +25,10 @@ def device_identifier(identifier: str, *, fan: bool = False) -> str:
     return f"{identifier}-fan" if fan else identifier
 
 
-def device_reference(identifier: str, *, fan: bool = False) -> DeviceInfo:
-    """Associate an entity with a device or its fan accessory using identifiers only."""
-    return DeviceInfo(identifiers={(DOMAIN, device_identifier(identifier, fan=fan))})
-
-
-def account_reference(config_entry: ConfigEntry) -> DeviceInfo:
-    """Associate an entity with its account's service device."""
-    return DeviceInfo(identifiers={(DOMAIN, config_entry.entry_id)})
-
-
 def device_metadata(device: ThermoworksDevice) -> DeviceInfo:
     """Describe a ThermoWorks device using its identity and cloud metadata."""
     return DeviceInfo(
-        identifiers=device_reference(device.get_identifier())["identifiers"],
+        identifiers={(DOMAIN, device_identifier(device.get_identifier()))},
         name=device.label,
         sw_version=device.firmware,
         manufacturer="ThermoWorks",
@@ -50,7 +40,7 @@ def device_metadata(device: ThermoworksDevice) -> DeviceInfo:
 def fan_metadata(device: DeviceWithFan) -> DeviceInfo:
     """Describe the separate fan accessory and its connection to the parent device."""
     return DeviceInfo(
-        identifiers=device_reference(device.get_identifier(), fan=True)["identifiers"],
+        identifiers={(DOMAIN, device_identifier(device.get_identifier(), fan=True))},
         name=f"{device.label or device.display_name()} Fan",
         manufacturer="ThermoWorks",
         via_device=(DOMAIN, device_identifier(device.get_identifier())),
@@ -60,7 +50,7 @@ def fan_metadata(device: DeviceWithFan) -> DeviceInfo:
 def account_metadata(config_entry: ConfigEntry) -> DeviceInfo:
     """Describe the account-wide service device used by the scan interval control."""
     return DeviceInfo(
-        identifiers=account_reference(config_entry)["identifiers"],
+        identifiers={(DOMAIN, config_entry.entry_id)},
         name=config_entry.title,
         entry_type=DeviceEntryType.SERVICE,
     )

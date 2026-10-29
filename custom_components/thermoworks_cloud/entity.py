@@ -3,6 +3,7 @@
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
+from .const import DOMAIN
 from .coordinator import ThermoworksCoordinator
 
 
@@ -16,9 +17,9 @@ class ThermoworksEntity(CoordinatorEntity[ThermoworksCoordinator]):
         entity_id: str,
         coordinator: ThermoworksCoordinator,
         *,
-        device_info: DeviceInfo,
+        identifier: str,
     ) -> None:
-        """Connect the entity to its coordinator and supplied device reference."""
+        """Connect the entity to its coordinator and identified device."""
         super().__init__(coordinator)
         self.entity_id = entity_id
-        self._attr_device_info = device_info
+        self._attr_device_info = DeviceInfo(identifiers={(DOMAIN, identifier)})

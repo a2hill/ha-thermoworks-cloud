@@ -43,10 +43,10 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import (
     DEFAULT_SCAN_INTERVAL_SECONDS,
+    DOMAIN,
     MAX_SCAN_INTERVAL_SECONDS,
     MIN_SCAN_INTERVAL_SECONDS,
 )
-from .device import account_reference
 
 _LOGGER: logging.Logger = logging.getLogger(__package__)
 
@@ -57,14 +57,7 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up the scan interval number entity for a config entry."""
-    async_add_entities(
-        [
-            ScanIntervalNumber(
-                config_entry,
-                device_info=account_reference(config_entry),
-            )
-        ]
-    )
+    async_add_entities([ScanIntervalNumber(config_entry)])
 
 
 class ScanIntervalNumber(NumberEntity):
@@ -92,11 +85,13 @@ class ScanIntervalNumber(NumberEntity):
     _attr_native_unit_of_measurement = UnitOfTime.SECONDS
     _attr_should_poll = False
 
-    def __init__(self, config_entry: ConfigEntry, *, device_info: DeviceInfo) -> None:
+    def __init__(self, config_entry: ConfigEntry) -> None:
         """Initialise the entity for the given config entry."""
         self._config_entry = config_entry
         self._attr_unique_id = f"{config_entry.entry_id}_scan_interval"
-        self._attr_device_info = device_info
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, config_entry.entry_id)}
+        )
 
     @property
     def native_value(self) -> int:

@@ -15,10 +15,7 @@ from custom_components.thermoworks_cloud.const import (
     MAX_SCAN_INTERVAL_SECONDS,
     MIN_SCAN_INTERVAL_SECONDS,
 )
-from custom_components.thermoworks_cloud.device import (
-    account_metadata,
-    account_reference,
-)
+from custom_components.thermoworks_cloud.device import account_metadata
 from custom_components.thermoworks_cloud.number import ScanIntervalNumber
 
 
@@ -39,9 +36,7 @@ def _build_entity(options: dict | None = None):
         updates.append(options)
         entry.options = options
 
-    entity = ScanIntervalNumber(
-        config_entry, device_info=account_reference(config_entry)
-    )
+    entity = ScanIntervalNumber(config_entry)
     entity.hass = SimpleNamespace(
         config_entries=SimpleNamespace(async_update_entry=async_update_entry)
     )

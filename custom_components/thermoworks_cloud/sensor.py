@@ -12,13 +12,12 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import PERCENTAGE, SIGNAL_STRENGTH_DECIBELS_MILLIWATT, UnitOfTemperature, UnitOfTime
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.util import dt as dt_util
-from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity import async_generate_entity_id
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from .const import DOMAIN
-from .device import device_identifier, device_reference
+from .device import device_identifier
 from .entity import ThermoworksEntity
 
 from .models import (
@@ -51,7 +50,6 @@ async def async_setup_entry(
 
     new_entities = []
     for device in coordinator.data.devices:
-        parent_device_info = device_reference(device.get_identifier())
 
         # Only create battery sensor if the device has battery capability
         if DeviceWithBattery.is_protocol_compliant(device):
@@ -64,7 +62,6 @@ async def async_setup_entry(
                     ),
                     coordinator=coordinator,
                     device=device,
-                    device_info=parent_device_info,
                 )
             )
         else:
@@ -85,7 +82,6 @@ async def async_setup_entry(
                     ),
                     coordinator=coordinator,
                     device=device,
-                    device_info=parent_device_info,
                 )
             )
         else:
@@ -105,7 +101,6 @@ async def async_setup_entry(
                     ),
                     coordinator=coordinator,
                     device=device,
-                    device_info=parent_device_info,
                 )
             )
         else:
@@ -125,7 +120,6 @@ async def async_setup_entry(
                     ),
                     coordinator=coordinator,
                     device=device,
-                    device_info=parent_device_info,
                 )
             )
         else:
@@ -136,7 +130,6 @@ async def async_setup_entry(
             )
 
         if DeviceWithFan.is_protocol_compliant(device):
-            accessory_device_info = device_reference(device.get_identifier(), fan=True)
             new_entities.extend(
                 [
                     FanStateSensor(
@@ -147,7 +140,6 @@ async def async_setup_entry(
                         ),
                         coordinator=coordinator,
                         device=device,
-                        device_info=accessory_device_info,
                     ),
                     FanSetTemperatureSensor(
                         entity_id=async_generate_entity_id(
@@ -157,7 +149,6 @@ async def async_setup_entry(
                         ),
                         coordinator=coordinator,
                         device=device,
-                        device_info=accessory_device_info,
                     ),
                 ]
             )
@@ -180,7 +171,6 @@ async def async_setup_entry(
                         coordinator=coordinator,
                         device_serial=device.get_identifier(),
                         device_channel=device_channel,
-                        device_info=parent_device_info,
                     )
                 )
             elif device_channel.units in ("F", "C"):
@@ -194,7 +184,6 @@ async def async_setup_entry(
                         coordinator=coordinator,
                         device_serial=device.get_identifier(),
                         device_channel=device_channel,
-                        device_info=parent_device_info,
                     )
                 )
             else:
@@ -216,7 +205,6 @@ async def async_setup_entry(
                         coordinator=coordinator,
                         device_serial=device.get_identifier(),
                         device_channel=device_channel,
-                        device_info=parent_device_info,
                     )
                 )
 
@@ -231,7 +219,6 @@ async def async_setup_entry(
                         coordinator=coordinator,
                         device_serial=device.get_identifier(),
                         device_channel=device_channel,
-                        device_info=parent_device_info,
                     )
                 )
 
@@ -266,11 +253,13 @@ class BatterySensor(ThermoworksEntity, SensorEntity):
         entity_id: str,
         coordinator: ThermoworksCoordinator,
         device: DeviceWithBattery,
-        *,
-        device_info: DeviceInfo,
     ) -> None:
         """Initialise sensor."""
-        super().__init__(entity_id, coordinator, device_info=device_info)
+        super().__init__(
+            entity_id,
+            coordinator,
+            identifier=device_identifier(device.get_identifier()),
+        )
         self._device = device
 
     @callback
@@ -327,10 +316,12 @@ class LastSeenSensor(ThermoworksEntity, SensorEntity):
         entity_id: str,
         coordinator: ThermoworksCoordinator,
         device: DeviceWithLastSeen,
-        *,
-        device_info: DeviceInfo,
     ) -> None:
-        super().__init__(entity_id, coordinator, device_info=device_info)
+        super().__init__(
+            entity_id,
+            coordinator,
+            identifier=device_identifier(device.get_identifier()),
+        )
         self._device = device
 
     @callback
@@ -376,10 +367,12 @@ class TransmitIntervalSensor(ThermoworksEntity, SensorEntity):
         entity_id: str,
         coordinator: ThermoworksCoordinator,
         device: DeviceWithTransmitInterval,
-        *,
-        device_info: DeviceInfo,
     ) -> None:
-        super().__init__(entity_id, coordinator, device_info=device_info)
+        super().__init__(
+            entity_id,
+            coordinator,
+            identifier=device_identifier(device.get_identifier()),
+        )
         self._device = device
 
     @callback
@@ -424,12 +417,14 @@ class ChannelSensor(ThermoworksEntity, SensorEntity):
         coordinator: ThermoworksCoordinator,
         device_serial: str,
         device_channel: ThermoworksChannel,
-        *,
-        device_info: DeviceInfo,
     ) -> None:
         """Initialize the sensor."""
 
-        super().__init__(entity_id, coordinator, device_info=device_info)
+        super().__init__(
+            entity_id,
+            coordinator,
+            identifier=device_identifier(device_serial),
+        )
         self._device_channel = device_channel
         self._device_serial = device_serial
 
@@ -620,11 +615,13 @@ class FanSensor(ThermoworksEntity, SensorEntity):
         entity_id: str,
         coordinator: ThermoworksCoordinator,
         device: DeviceWithFan,
-        *,
-        device_info: DeviceInfo,
     ) -> None:
         """Initialise sensor."""
-        super().__init__(entity_id, coordinator, device_info=device_info)
+        super().__init__(
+            entity_id,
+            coordinator,
+            identifier=device_identifier(device.get_identifier(), fan=True),
+        )
         self._device = device
 
     @callback
@@ -735,11 +732,13 @@ class SignalSensor(ThermoworksEntity, SensorEntity):
         entity_id: str,
         coordinator: ThermoworksCoordinator,
         device: DeviceWithSignalStrength,
-        *,
-        device_info: DeviceInfo,
     ) -> None:
         """Initialise sensor."""
-        super().__init__(entity_id, coordinator, device_info=device_info)
+        super().__init__(
+            entity_id,
+            coordinator,
+            identifier=device_identifier(device.get_identifier()),
+        )
         self._device = device
 
     @callback

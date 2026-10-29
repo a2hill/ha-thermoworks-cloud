@@ -7,13 +7,12 @@ from homeassistant.components.binary_sensor import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity import async_generate_entity_id
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from .const import DOMAIN
-from .device import device_identifier, device_reference
+from .device import device_identifier
 from .entity import ThermoworksEntity
 from .coordinator import ThermoworksCoordinator
 from .models import (
@@ -44,14 +43,12 @@ async def async_setup_entry(
             ),
             coordinator=coordinator,
             device=device,
-            device_info=device_reference(device.get_identifier(), fan=True),
         )
         for device in coordinator.data.devices
         if DeviceWithFan.is_protocol_compliant(device)
     ]
 
     for device in coordinator.data.devices:
-        parent_device_info = device_reference(device.get_identifier())
         for device_channel in coordinator.data.device_channels.get(
             device.get_identifier(), []
         ):
@@ -66,7 +63,6 @@ async def async_setup_entry(
                         coordinator=coordinator,
                         device_serial=device.get_identifier(),
                         device_channel=device_channel,
-                        device_info=parent_device_info,
                     )
                 )
 
@@ -81,7 +77,6 @@ async def async_setup_entry(
                         coordinator=coordinator,
                         device_serial=device.get_identifier(),
                         device_channel=device_channel,
-                        device_info=parent_device_info,
                     )
                 )
 
@@ -99,11 +94,13 @@ class FanConnectedSensor(ThermoworksEntity, BinarySensorEntity):
         entity_id: str,
         coordinator: ThermoworksCoordinator,
         device: DeviceWithFan,
-        *,
-        device_info: DeviceInfo,
     ) -> None:
         """Initialise sensor."""
-        super().__init__(entity_id, coordinator, device_info=device_info)
+        super().__init__(
+            entity_id,
+            coordinator,
+            identifier=device_identifier(device.get_identifier(), fan=True),
+        )
         self._device = device
 
     @callback
@@ -144,11 +141,13 @@ class AlarmBinarySensor(ThermoworksEntity, BinarySensorEntity):
         coordinator: ThermoworksCoordinator,
         device_serial: str,
         device_channel: ThermoworksChannel,
-        *,
-        device_info: DeviceInfo,
     ) -> None:
         """Initialise sensor."""
-        super().__init__(entity_id, coordinator, device_info=device_info)
+        super().__init__(
+            entity_id,
+            coordinator,
+            identifier=device_identifier(device_serial),
+        )
         self._device_serial = device_serial
         self._device_channel = device_channel
 

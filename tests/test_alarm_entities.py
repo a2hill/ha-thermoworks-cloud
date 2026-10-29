@@ -9,9 +9,6 @@ from custom_components.thermoworks_cloud.binary_sensor import (
     HighAlarmBinarySensor,
     LowAlarmBinarySensor,
 )
-from custom_components.thermoworks_cloud.device import (
-    device_reference,
-)
 from custom_components.thermoworks_cloud.models import ThermoworksChannel
 from custom_components.thermoworks_cloud.sensor import (
     HighAlarmThresholdSensor,
@@ -37,28 +34,24 @@ def test_alarm_entities_expose_thresholds_and_active_states() -> None:
         coordinator,
         "RFX123",
         channel,
-        device_info=device_reference("RFX123"),
     )
     low_threshold = LowAlarmThresholdSensor(
         "sensor.rfx_air_low_alarm",
         coordinator,
         "RFX123",
         channel,
-        device_info=device_reference("RFX123"),
     )
     high_active = HighAlarmBinarySensor(
         "binary_sensor.rfx_air_high_alarm",
         coordinator,
         "RFX123",
         channel,
-        device_info=device_reference("RFX123"),
     )
     low_active = LowAlarmBinarySensor(
         "binary_sensor.rfx_air_low_alarm",
         coordinator,
         "RFX123",
         channel,
-        device_info=device_reference("RFX123"),
     )
 
     assert high_threshold.name == "Air (Ch. 1) High Alarm Threshold"
@@ -108,7 +101,6 @@ def test_disabled_alarm_is_not_active() -> None:
         coordinator,
         "RFX123",
         channel,
-        device_info=device_reference("RFX123"),
     )
 
     assert high_active.is_on is False

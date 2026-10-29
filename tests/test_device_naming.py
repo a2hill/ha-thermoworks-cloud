@@ -6,11 +6,7 @@ from unittest import TestCase
 from thermoworks_cloud.models import Fan
 
 from custom_components.thermoworks_cloud.binary_sensor import HighAlarmBinarySensor
-from custom_components.thermoworks_cloud.device import (
-    device_metadata,
-    device_reference,
-    fan_metadata,
-)
+from custom_components.thermoworks_cloud.device import device_metadata, fan_metadata
 from custom_components.thermoworks_cloud.models import (
     ThermoworksChannel,
     ThermoworksDevice,
@@ -87,28 +83,24 @@ class TestDeviceNaming(TestCase):
             coordinator,
             "RFX123",
             temperature_channel,
-            device_info=device_reference("RFX123"),
         )
         humidity = HumiditySensor(
             "sensor.humidity",
             coordinator,
             "RFX123",
             humidity_channel,
-            device_info=device_reference("RFX123"),
         )
         threshold = HighAlarmThresholdSensor(
             "sensor.threshold",
             coordinator,
             "RFX123",
             alarm_channel,
-            device_info=device_reference("RFX123"),
         )
         alarm = HighAlarmBinarySensor(
             "binary_sensor.alarm",
             coordinator,
             "RFX123",
             alarm_channel,
-            device_info=device_reference("RFX123"),
         )
 
         # Assert
@@ -133,42 +125,36 @@ class TestDeviceNaming(TestCase):
             coordinator,
             "RFX123",
             missing_label_channel,
-            device_info=device_reference("RFX123"),
         )
         empty_label_temperature = TemperatureSensor(
             "sensor.empty_label_temperature",
             coordinator,
             "RFX123",
             empty_label_channel,
-            device_info=device_reference("RFX123"),
         )
         missing_label_threshold = HighAlarmThresholdSensor(
             "sensor.missing_label_threshold",
             coordinator,
             "RFX123",
             missing_label_channel,
-            device_info=device_reference("RFX123"),
         )
         empty_label_threshold = HighAlarmThresholdSensor(
             "sensor.empty_label_threshold",
             coordinator,
             "RFX123",
             empty_label_channel,
-            device_info=device_reference("RFX123"),
         )
         missing_label_alarm = HighAlarmBinarySensor(
             "binary_sensor.missing_label_alarm",
             coordinator,
             "RFX123",
             missing_label_channel,
-            device_info=device_reference("RFX123"),
         )
         empty_label_alarm = HighAlarmBinarySensor(
             "binary_sensor.empty_label_alarm",
             coordinator,
             "RFX123",
             empty_label_channel,
-            device_info=device_reference("RFX123"),
         )
 
         # Assert
@@ -198,20 +184,17 @@ class TestDeviceNaming(TestCase):
             "sensor.battery",
             coordinator,
             device,
-            device_info=device_reference(device.get_identifier()),
         )
         temperature = TemperatureSensor(
             "sensor.temperature",
             coordinator,
             device.get_identifier(),
             channel,
-            device_info=device_reference(device.get_identifier()),
         )
         fan = FanStateSensor(
             "sensor.fan",
             coordinator,
             device,
-            device_info=device_reference(device.get_identifier(), fan=True),
         )
 
         # Assert
@@ -245,20 +228,17 @@ class TestDeviceNaming(TestCase):
             "sensor.battery",
             coordinator,
             device,
-            device_info=device_reference(device.get_identifier()),
         )
         temperature = TemperatureSensor(
             "sensor.temperature",
             coordinator,
             device.get_identifier(),
             channel,
-            device_info=device_reference(device.get_identifier()),
         )
         fan = FanStateSensor(
             "sensor.fan",
             coordinator,
             device,
-            device_info=device_reference(device.get_identifier(), fan=True),
         )
 
         # Assert
