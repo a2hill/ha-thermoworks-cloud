@@ -6,7 +6,11 @@ from unittest import TestCase
 from thermoworks_cloud.models import Fan
 
 from custom_components.thermoworks_cloud.binary_sensor import HighAlarmBinarySensor
-from custom_components.thermoworks_cloud.device import device_metadata, fan_metadata
+from custom_components.thermoworks_cloud.device import (
+    device_metadata,
+    fan_metadata,
+    get_identifier_for_device,
+)
 from custom_components.thermoworks_cloud.models import (
     ThermoworksChannel,
     ThermoworksDevice,
@@ -84,24 +88,28 @@ class TestDeviceNaming(TestCase):
             coordinator,
             device,
             temperature_channel,
+            identifier=get_identifier_for_device(device),
         )
         humidity = HumiditySensor(
             "sensor.humidity",
             coordinator,
             device,
             humidity_channel,
+            identifier=get_identifier_for_device(device),
         )
         threshold = HighAlarmThresholdSensor(
             "sensor.threshold",
             coordinator,
             device,
             alarm_channel,
+            identifier=get_identifier_for_device(device),
         )
         alarm = HighAlarmBinarySensor(
             "binary_sensor.alarm",
             coordinator,
             device,
             alarm_channel,
+            identifier=get_identifier_for_device(device),
         )
 
         # Assert
@@ -127,36 +135,42 @@ class TestDeviceNaming(TestCase):
             coordinator,
             device,
             missing_label_channel,
+            identifier=get_identifier_for_device(device),
         )
         empty_label_temperature = TemperatureSensor(
             "sensor.empty_label_temperature",
             coordinator,
             device,
             empty_label_channel,
+            identifier=get_identifier_for_device(device),
         )
         missing_label_threshold = HighAlarmThresholdSensor(
             "sensor.missing_label_threshold",
             coordinator,
             device,
             missing_label_channel,
+            identifier=get_identifier_for_device(device),
         )
         empty_label_threshold = HighAlarmThresholdSensor(
             "sensor.empty_label_threshold",
             coordinator,
             device,
             empty_label_channel,
+            identifier=get_identifier_for_device(device),
         )
         missing_label_alarm = HighAlarmBinarySensor(
             "binary_sensor.missing_label_alarm",
             coordinator,
             device,
             missing_label_channel,
+            identifier=get_identifier_for_device(device),
         )
         empty_label_alarm = HighAlarmBinarySensor(
             "binary_sensor.empty_label_alarm",
             coordinator,
             device,
             empty_label_channel,
+            identifier=get_identifier_for_device(device),
         )
 
         # Assert
@@ -186,17 +200,20 @@ class TestDeviceNaming(TestCase):
             "sensor.battery",
             coordinator,
             device,
+            identifier=get_identifier_for_device(device),
         )
         temperature = TemperatureSensor(
             "sensor.temperature",
             coordinator,
             device,
             channel,
+            identifier=get_identifier_for_device(device),
         )
         fan = FanStateSensor(
             "sensor.fan",
             coordinator,
             device,
+            identifier=f"{get_identifier_for_device(device)}-fan",
         )
 
         # Assert
@@ -230,17 +247,20 @@ class TestDeviceNaming(TestCase):
             "sensor.battery",
             coordinator,
             device,
+            identifier=get_identifier_for_device(device),
         )
         temperature = TemperatureSensor(
             "sensor.temperature",
             coordinator,
             device,
             channel,
+            identifier=get_identifier_for_device(device),
         )
         fan = FanStateSensor(
             "sensor.fan",
             coordinator,
             device,
+            identifier=f"{get_identifier_for_device(device)}-fan",
         )
 
         # Assert

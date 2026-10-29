@@ -44,12 +44,14 @@ async def async_setup_entry(
             ),
             coordinator=coordinator,
             device=device,
+            identifier=f"{get_identifier_for_device(device)}-fan",
         )
         for device in coordinator.data.devices
         if DeviceWithFan.is_protocol_compliant(device)
     ]
 
     for device in coordinator.data.devices:
+        parent_identifier = get_identifier_for_device(device)
         for device_channel in coordinator.data.device_channels.get(
             device.get_identifier(), []
         ):
@@ -64,6 +66,7 @@ async def async_setup_entry(
                         coordinator=coordinator,
                         device=device,
                         device_channel=device_channel,
+                        identifier=parent_identifier,
                     )
                 )
 
@@ -78,6 +81,7 @@ async def async_setup_entry(
                         coordinator=coordinator,
                         device=device,
                         device_channel=device_channel,
+                        identifier=parent_identifier,
                     )
                 )
 
@@ -95,13 +99,11 @@ class FanConnectedSensor(ThermoworksEntity, BinarySensorEntity):
         entity_id: str,
         coordinator: ThermoworksCoordinator,
         device: DeviceWithFan,
+        *,
+        identifier: str,
     ) -> None:
         """Initialise sensor."""
-        super().__init__(
-            entity_id,
-            coordinator,
-            identifier=f"{get_identifier_for_device(device)}-fan",
-        )
+        super().__init__(entity_id, coordinator, identifier=identifier)
         self._device = device
 
     @callback
@@ -128,7 +130,7 @@ class FanConnectedSensor(ThermoworksEntity, BinarySensorEntity):
     @property
     def unique_id(self) -> str:
         """Return unique id."""
-        return f"{DOMAIN}-{get_identifier_for_device(self._device)}-fan-connected"
+        return f"{DOMAIN}-{self._device_identifier}-connected"
 
 
 class AlarmBinarySensor(ThermoworksEntity, BinarySensorEntity):
@@ -142,13 +144,11 @@ class AlarmBinarySensor(ThermoworksEntity, BinarySensorEntity):
         coordinator: ThermoworksCoordinator,
         device: ThermoworksDevice,
         device_channel: ThermoworksChannel,
+        *,
+        identifier: str,
     ) -> None:
         """Initialise sensor."""
-        super().__init__(
-            entity_id,
-            coordinator,
-            identifier=get_identifier_for_device(device),
-        )
+        super().__init__(entity_id, coordinator, identifier=identifier)
         self._device = device
         self._device_channel = device_channel
 
@@ -201,7 +201,7 @@ class HighAlarmBinarySensor(AlarmBinarySensor):
     @property
     def unique_id(self) -> str:
         """Return unique id."""
-        return f"{DOMAIN}-{get_identifier_for_device(self._device)}-{self._device_channel.number}-high-alarm"
+        return f"{DOMAIN}-{self._device_identifier}-{self._device_channel.number}-high-alarm"
 
 
 class LowAlarmBinarySensor(AlarmBinarySensor):
@@ -222,4 +222,4 @@ class LowAlarmBinarySensor(AlarmBinarySensor):
     @property
     def unique_id(self) -> str:
         """Return unique id."""
-        return f"{DOMAIN}-{get_identifier_for_device(self._device)}-{self._device_channel.number}-low-alarm"
+        return f"{DOMAIN}-{self._device_identifier}-{self._device_channel.number}-low-alarm"

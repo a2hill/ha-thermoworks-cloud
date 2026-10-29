@@ -19,7 +19,8 @@ class ThermoworksEntity(CoordinatorEntity[ThermoworksCoordinator]):
         *,
         identifier: str,
     ) -> None:
-        """Connect the entity to its coordinator and identified device."""
+        """Connect the coordinator and store the device association chosen by setup."""
         super().__init__(coordinator)
         self.entity_id = entity_id
+        self._device_identifier = identifier
         self._attr_device_info = DeviceInfo(identifiers={(DOMAIN, identifier)})
