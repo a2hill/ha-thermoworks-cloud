@@ -34,25 +34,27 @@ async def async_setup_entry(
         config_entry.entry_id
     ].coordinator
 
-    new_entities = [
-        FanConnectedSensor(
-            entity_id=async_generate_entity_id(
-                ENTITY_ID_FORMAT,
-                f"{device.get_identifier()}_fan_connected",
-                hass=hass,
-            ),
-            coordinator=coordinator,
-            device=device,
-            identifier=f"{get_identifier_for_device(device)}-fan",
-        )
-        for device in coordinator.data.devices
-        if DeviceWithFan.is_protocol_compliant(device)
-    ]
-
+    new_entities = []
     for device in coordinator.data.devices:
-        parent_identifier = get_identifier_for_device(device)
+        device_identifier = get_identifier_for_device(device)
+        if DeviceWithFan.is_protocol_compliant(device):
+            # For devices with fans, the fan is considered to be its own device with its own identifier
+            fan_device_identifier = f"{device_identifier}-fan"
+            new_entities.append(
+                FanConnectedSensor(
+                    entity_id=async_generate_entity_id(
+                        ENTITY_ID_FORMAT,
+                        f"{device.get_identifier()}_fan_connected",
+                        hass=hass,
+                    ),
+                    coordinator=coordinator,
+                    device=device,
+                    identifier=f"{device_identifier}-fan", 
+                )
+            )
+            
         for device_channel in coordinator.data.device_channels.get(
-            parent_identifier, []
+            device_identifier, []
         ):
             if ChannelWithHighAlarm.is_protocol_compliant(device_channel):
                 new_entities.append(
@@ -64,7 +66,7 @@ async def async_setup_entry(
                         ),
                         coordinator=coordinator,
                         device_channel=device_channel,
-                        identifier=parent_identifier,
+                        identifier=device_identifier,
                     )
                 )
 
@@ -78,7 +80,7 @@ async def async_setup_entry(
                         ),
                         coordinator=coordinator,
                         device_channel=device_channel,
-                        identifier=parent_identifier,
+                        identifier=device_identifier,
                     )
                 )
 
