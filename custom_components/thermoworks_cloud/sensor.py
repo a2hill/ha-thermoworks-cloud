@@ -1,6 +1,6 @@
 """Sensor entities for ThermoWorks Cloud."""
-from collections.abc import Mapping
 import logging
+from collections.abc import Mapping
 
 from homeassistant.components.sensor import (
     ENTITY_ID_FORMAT,
@@ -9,17 +9,22 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import PERCENTAGE, SIGNAL_STRENGTH_DECIBELS_MILLIWATT, UnitOfTemperature, UnitOfTime
+from homeassistant.const import (
+    PERCENTAGE,
+    SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
+    UnitOfTemperature,
+    UnitOfTime,
+)
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.util import dt as dt_util
 from homeassistant.helpers.entity import async_generate_entity_id
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import UpdateFailed
+from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN
+from .coordinator import ThermoworksCoordinator
 from .device import get_identifier_for_device
 from .entity import ThermoworksEntity
-
 from .models import (
     ChannelWithHighAlarm,
     ChannelWithLowAlarm,
@@ -31,8 +36,6 @@ from .models import (
     ThermoworksChannel,
     get_missing_attributes,
 )
-
-from .coordinator import ThermoworksCoordinator
 
 _LOGGER: logging.Logger = logging.getLogger(__package__)
 
@@ -50,7 +53,7 @@ async def async_setup_entry(
 
     new_entities = []
     for device in coordinator.data.devices:
-        parent_identifier = get_identifier_for_device(device)
+        registry_identifier = get_identifier_for_device(device)
 
         # Only create battery sensor if the device has battery capability
         if DeviceWithBattery.is_protocol_compliant(device):
@@ -63,7 +66,7 @@ async def async_setup_entry(
                     ),
                     coordinator=coordinator,
                     device=device,
-                    identifier=parent_identifier,
+                    registry_identifier=registry_identifier,
                 )
             )
         else:
@@ -84,7 +87,7 @@ async def async_setup_entry(
                     ),
                     coordinator=coordinator,
                     device=device,
-                    identifier=parent_identifier,
+                    registry_identifier=registry_identifier,
                 )
             )
         else:
@@ -104,7 +107,7 @@ async def async_setup_entry(
                     ),
                     coordinator=coordinator,
                     device=device,
-                    identifier=parent_identifier,
+                    registry_identifier=registry_identifier,
                 )
             )
         else:
@@ -124,7 +127,7 @@ async def async_setup_entry(
                     ),
                     coordinator=coordinator,
                     device=device,
-                    identifier=parent_identifier,
+                    registry_identifier=registry_identifier,
                 )
             )
         else:
@@ -145,7 +148,7 @@ async def async_setup_entry(
                         ),
                         coordinator=coordinator,
                         device=device,
-                        identifier=f"{parent_identifier}-fan",
+                        registry_identifier=f"{registry_identifier}-fan",
                     ),
                     FanSetTemperatureSensor(
                         entity_id=async_generate_entity_id(
@@ -155,7 +158,7 @@ async def async_setup_entry(
                         ),
                         coordinator=coordinator,
                         device=device,
-                        identifier=f"{parent_identifier}-fan",
+                        registry_identifier=f"{registry_identifier}-fan",
                     ),
                 ]
             )
@@ -166,7 +169,7 @@ async def async_setup_entry(
                 get_missing_attributes(device, DeviceWithFan)
             )
 
-        for device_channel in coordinator.data.device_channels.get(parent_identifier, []):
+        for device_channel in coordinator.data.device_channels.get(registry_identifier, []):
             if device_channel.units == "H":
                 new_entities.append(
                     HumiditySensor(
@@ -177,7 +180,7 @@ async def async_setup_entry(
                         ),
                         coordinator=coordinator,
                         device_channel=device_channel,
-                        identifier=parent_identifier,
+                        registry_identifier=registry_identifier,
                     )
                 )
             elif device_channel.units in ("F", "C"):
@@ -190,7 +193,7 @@ async def async_setup_entry(
                         ),
                         coordinator=coordinator,
                         device_channel=device_channel,
-                        identifier=parent_identifier,
+                        registry_identifier=registry_identifier,
                     )
                 )
             else:
@@ -211,7 +214,7 @@ async def async_setup_entry(
                         ),
                         coordinator=coordinator,
                         device_channel=device_channel,
-                        identifier=parent_identifier,
+                        registry_identifier=registry_identifier,
                     )
                 )
 
@@ -225,7 +228,7 @@ async def async_setup_entry(
                         ),
                         coordinator=coordinator,
                         device_channel=device_channel,
-                        identifier=parent_identifier,
+                        registry_identifier=registry_identifier,
                     )
                 )
 
@@ -261,10 +264,10 @@ class BatterySensor(ThermoworksEntity, SensorEntity):
         coordinator: ThermoworksCoordinator,
         device: DeviceWithBattery,
         *,
-        identifier: str,
+        registry_identifier: str,
     ) -> None:
         """Initialise sensor."""
-        super().__init__(entity_id, coordinator, identifier=identifier)
+        super().__init__(entity_id, coordinator, registry_identifier=registry_identifier)
         self._device = device
 
     @callback
@@ -307,7 +310,7 @@ class BatterySensor(ThermoworksEntity, SensorEntity):
         """Return unique id."""
         # All entities must have a unique id.  Think carefully what you want this to be as
         # changing it later will cause HA to create new entities.
-        return f"{DOMAIN}-{self._device_identifier}"
+        return f"{DOMAIN}-{self._registry_identifier}"
 
 
 class LastSeenSensor(ThermoworksEntity, SensorEntity):
@@ -322,9 +325,9 @@ class LastSeenSensor(ThermoworksEntity, SensorEntity):
         coordinator: ThermoworksCoordinator,
         device: DeviceWithLastSeen,
         *,
-        identifier: str,
+        registry_identifier: str,
     ) -> None:
-        super().__init__(entity_id, coordinator, identifier=identifier)
+        super().__init__(entity_id, coordinator, registry_identifier=registry_identifier)
         self._device = device
 
     @callback
@@ -355,7 +358,7 @@ class LastSeenSensor(ThermoworksEntity, SensorEntity):
 
     @property
     def unique_id(self) -> str:
-        return f"{DOMAIN}-{self._device_identifier}-last-seen"
+        return f"{DOMAIN}-{self._registry_identifier}-last-seen"
 
 
 class TransmitIntervalSensor(ThermoworksEntity, SensorEntity):
@@ -371,9 +374,9 @@ class TransmitIntervalSensor(ThermoworksEntity, SensorEntity):
         coordinator: ThermoworksCoordinator,
         device: DeviceWithTransmitInterval,
         *,
-        identifier: str,
+        registry_identifier: str,
     ) -> None:
-        super().__init__(entity_id, coordinator, identifier=identifier)
+        super().__init__(entity_id, coordinator, registry_identifier=registry_identifier)
         self._device = device
 
     @callback
@@ -397,7 +400,7 @@ class TransmitIntervalSensor(ThermoworksEntity, SensorEntity):
 
     @property
     def unique_id(self) -> str:
-        return f"{DOMAIN}-{self._device_identifier}-transmit-interval"
+        return f"{DOMAIN}-{self._registry_identifier}-transmit-interval"
 
 
 class ChannelSensor(ThermoworksEntity, SensorEntity):
@@ -418,11 +421,11 @@ class ChannelSensor(ThermoworksEntity, SensorEntity):
         coordinator: ThermoworksCoordinator,
         device_channel: ThermoworksChannel,
         *,
-        identifier: str,
+        registry_identifier: str,
     ) -> None:
         """Initialize the sensor."""
 
-        super().__init__(entity_id, coordinator, identifier=identifier)
+        super().__init__(entity_id, coordinator, registry_identifier=registry_identifier)
         self._device_channel = device_channel
 
     @callback
@@ -430,7 +433,7 @@ class ChannelSensor(ThermoworksEntity, SensorEntity):
         """Update sensor with latest data from coordinator."""
         # This method is called by your DataUpdateCoordinator when a successful update runs.
         device_channel = self.coordinator.get_device_channel_by_id(
-            device_id=self._device_identifier, channel_id=self._device_channel.number
+            device_id=self._registry_identifier, channel_id=self._device_channel.number
         )
         if not device_channel:
             raise UpdateFailed(
@@ -463,7 +466,7 @@ class ChannelSensor(ThermoworksEntity, SensorEntity):
         """Return unique id."""
         # All entities must have a unique id.  Think carefully what you want this to be as
         # changing it later will cause HA to create new entities.
-        return f"{DOMAIN}-{self._device_identifier}-{self._device_channel.number}"
+        return f"{DOMAIN}-{self._registry_identifier}-{self._device_channel.number}"
 
 class TemperatureSensor(ChannelSensor):
     """Implementation of a thermoworks temperature sensor."""
@@ -577,7 +580,7 @@ class HighAlarmThresholdSensor(AlarmThresholdSensor):
     @property
     def unique_id(self) -> str:
         """Return unique id."""
-        return f"{DOMAIN}-{self._device_identifier}-{self._device_channel.number}-high-alarm-threshold"
+        return f"{DOMAIN}-{self._registry_identifier}-{self._device_channel.number}-high-alarm-threshold"
 
 
 class LowAlarmThresholdSensor(AlarmThresholdSensor):
@@ -598,7 +601,7 @@ class LowAlarmThresholdSensor(AlarmThresholdSensor):
     @property
     def unique_id(self) -> str:
         """Return unique id."""
-        return f"{DOMAIN}-{self._device_identifier}-{self._device_channel.number}-low-alarm-threshold"
+        return f"{DOMAIN}-{self._registry_identifier}-{self._device_channel.number}-low-alarm-threshold"
 
 
 class FanSensor(ThermoworksEntity, SensorEntity):
@@ -610,10 +613,10 @@ class FanSensor(ThermoworksEntity, SensorEntity):
         coordinator: ThermoworksCoordinator,
         device: DeviceWithFan,
         *,
-        identifier: str,
+        registry_identifier: str,
     ) -> None:
         """Initialise sensor."""
-        super().__init__(entity_id, coordinator, identifier=identifier)
+        super().__init__(entity_id, coordinator, registry_identifier=registry_identifier)
         self._device = device
 
     @callback
@@ -653,7 +656,7 @@ class FanStateSensor(FanSensor):
     @property
     def unique_id(self) -> str:
         """Return unique id."""
-        return f"{DOMAIN}-{self._device_identifier}-state"
+        return f"{DOMAIN}-{self._registry_identifier}-state"
 
 
 class FanSetTemperatureSensor(FanSensor):
@@ -697,7 +700,7 @@ class FanSetTemperatureSensor(FanSensor):
     @property
     def unique_id(self) -> str:
         """Return unique id."""
-        return f"{DOMAIN}-{self._device_identifier}-set-temperature"
+        return f"{DOMAIN}-{self._registry_identifier}-set-temperature"
 
 
 class SignalSensor(ThermoworksEntity, SensorEntity):
@@ -725,10 +728,10 @@ class SignalSensor(ThermoworksEntity, SensorEntity):
         coordinator: ThermoworksCoordinator,
         device: DeviceWithSignalStrength,
         *,
-        identifier: str,
+        registry_identifier: str,
     ) -> None:
         """Initialise sensor."""
-        super().__init__(entity_id, coordinator, identifier=identifier)
+        super().__init__(entity_id, coordinator, registry_identifier=registry_identifier)
         self._device = device
 
     @callback
@@ -759,4 +762,4 @@ class SignalSensor(ThermoworksEntity, SensorEntity):
         """Return unique id."""
         # All entities must have a unique id.  Think carefully what you want this to be as
         # changing it later will cause HA to create new entities.
-        return f"{DOMAIN}-{self._device_identifier}-signal"
+        return f"{DOMAIN}-{self._registry_identifier}-signal"

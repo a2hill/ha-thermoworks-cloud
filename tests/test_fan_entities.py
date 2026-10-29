@@ -1,12 +1,22 @@
 """Tests for ThermoWorks fan accessory entities."""
 
+import logging
+from tempfile import TemporaryDirectory
 from types import SimpleNamespace
+from unittest import IsolatedAsyncioTestCase
 
 from homeassistant.const import UnitOfTemperature
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers import device_registry, entity_registry
+from homeassistant.helpers.entity_component import EntityComponent
 from thermoworks_cloud.models import Fan
 
 from custom_components.thermoworks_cloud.binary_sensor import FanConnectedSensor
 from custom_components.thermoworks_cloud.const import DOMAIN
+from custom_components.thermoworks_cloud.coordinator import (
+    ThermoworksCoordinator,
+    ThermoworksData,
+)
 from custom_components.thermoworks_cloud.device import (
     fan_metadata,
     get_identifier_for_device,
@@ -32,19 +42,19 @@ def test_fan_entities_share_child_device_info() -> None:
         "binary_sensor.rfx_fan_connected",
         coordinator,
         device,
-        identifier=f"{get_identifier_for_device(device)}-fan",
+        registry_identifier=f"{get_identifier_for_device(device)}-fan",
     )
     state = FanStateSensor(
         "sensor.rfx_fan_state",
         coordinator,
         device,
-        identifier=f"{get_identifier_for_device(device)}-fan",
+        registry_identifier=f"{get_identifier_for_device(device)}-fan",
     )
     set_temperature = FanSetTemperatureSensor(
         "sensor.rfx_fan_set_temperature",
         coordinator,
         device,
-        identifier=f"{get_identifier_for_device(device)}-fan",
+        registry_identifier=f"{get_identifier_for_device(device)}-fan",
     )
 
     assert connected.device_info == state.device_info == set_temperature.device_info
@@ -75,19 +85,19 @@ def test_fan_value_sensors_unavailable_when_disconnected() -> None:
         "binary_sensor.rfx_fan_connected",
         coordinator,
         device,
-        identifier=f"{get_identifier_for_device(device)}-fan",
+        registry_identifier=f"{get_identifier_for_device(device)}-fan",
     )
     state = FanStateSensor(
         "sensor.rfx_fan_state",
         coordinator,
         device,
-        identifier=f"{get_identifier_for_device(device)}-fan",
+        registry_identifier=f"{get_identifier_for_device(device)}-fan",
     )
     set_temperature = FanSetTemperatureSensor(
         "sensor.rfx_fan_set_temperature",
         coordinator,
         device,
-        identifier=f"{get_identifier_for_device(device)}-fan",
+        registry_identifier=f"{get_identifier_for_device(device)}-fan",
     )
 
     assert connected.is_on is False
@@ -103,9 +113,60 @@ def test_fan_connection_sensor_uses_the_supplied_device_identifier() -> None:
 
     # Act
     connected = FanConnectedSensor(
-        "binary_sensor.fan_connected", coordinator, device, identifier="chosen-fan"
+        "binary_sensor.fan_connected",
+        coordinator,
+        device,
+        registry_identifier="chosen-fan",
     )
 
     # Assert
     assert connected.device_info["identifiers"] == {(DOMAIN, "chosen-fan")}
     assert connected.unique_id == "thermoworks_cloud-chosen-fan-connected"
+
+
+class TestFanConnectionUpdates(IsolatedAsyncioTestCase):
+    async def test_refresh_reads_source_device_and_preserves_fan_registry_identity(
+        self,
+    ):
+        # Setup
+        hass = HomeAssistant(self.enterContext(TemporaryDirectory()))
+        await device_registry.async_load(hass)
+        await entity_registry.async_load(hass)
+        entry = SimpleNamespace(
+            data={"email": "test@example.com", "password": "test"},
+            options={},
+            unique_id="account-one",
+        )
+        coordinator = ThermoworksCoordinator(hass, entry)
+        self.addAsyncCleanup(hass.async_stop, force=True)
+        device = ThermoworksDevice(
+            serial="RFX123", device_id="AABBCCDDEEFF", fan=Fan(connected=True)
+        )
+        coordinator.async_set_updated_data(ThermoworksData([device], {}))
+        connected = FanConnectedSensor(
+            "binary_sensor.fan_connected",
+            coordinator,
+            device,
+            registry_identifier="aa:bb:cc:dd:ee:ff-fan",
+        )
+        component = EntityComponent(logging.getLogger(__name__), "binary_sensor", hass)
+        await component.async_add_entities([connected])
+        self.addAsyncCleanup(connected.async_remove)
+        self.assertTrue(connected.is_on)
+
+        # Act
+        updated_device = ThermoworksDevice(
+            serial="RFX123", device_id="AABBCCDDEEFF", fan=Fan(connected=False)
+        )
+        coordinator.async_set_updated_data(ThermoworksData([updated_device], {}))
+
+        # Assert
+        self.assertEqual(hass.states.get(connected.entity_id).state, "off")
+        self.assertFalse(connected.is_on)
+        self.assertEqual(
+            connected.device_info["identifiers"],
+            {(DOMAIN, "aa:bb:cc:dd:ee:ff-fan")},
+        )
+        self.assertEqual(
+            connected.unique_id, "thermoworks_cloud-aa:bb:cc:dd:ee:ff-fan-connected"
+        )

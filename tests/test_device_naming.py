@@ -87,25 +87,25 @@ class TestDeviceNaming(TestCase):
             "sensor.temperature",
             coordinator,
             temperature_channel,
-            identifier=get_identifier_for_device(device),
+            registry_identifier=get_identifier_for_device(device),
         )
         humidity = HumiditySensor(
             "sensor.humidity",
             coordinator,
             humidity_channel,
-            identifier=get_identifier_for_device(device),
+            registry_identifier=get_identifier_for_device(device),
         )
         threshold = HighAlarmThresholdSensor(
             "sensor.threshold",
             coordinator,
             alarm_channel,
-            identifier=get_identifier_for_device(device),
+            registry_identifier=get_identifier_for_device(device),
         )
         alarm = HighAlarmBinarySensor(
             "binary_sensor.alarm",
             coordinator,
             alarm_channel,
-            identifier=get_identifier_for_device(device),
+            registry_identifier=get_identifier_for_device(device),
         )
 
         # Assert
@@ -130,37 +130,37 @@ class TestDeviceNaming(TestCase):
             "sensor.missing_label_temperature",
             coordinator,
             missing_label_channel,
-            identifier=get_identifier_for_device(device),
+            registry_identifier=get_identifier_for_device(device),
         )
         empty_label_temperature = TemperatureSensor(
             "sensor.empty_label_temperature",
             coordinator,
             empty_label_channel,
-            identifier=get_identifier_for_device(device),
+            registry_identifier=get_identifier_for_device(device),
         )
         missing_label_threshold = HighAlarmThresholdSensor(
             "sensor.missing_label_threshold",
             coordinator,
             missing_label_channel,
-            identifier=get_identifier_for_device(device),
+            registry_identifier=get_identifier_for_device(device),
         )
         empty_label_threshold = HighAlarmThresholdSensor(
             "sensor.empty_label_threshold",
             coordinator,
             empty_label_channel,
-            identifier=get_identifier_for_device(device),
+            registry_identifier=get_identifier_for_device(device),
         )
         missing_label_alarm = HighAlarmBinarySensor(
             "binary_sensor.missing_label_alarm",
             coordinator,
             missing_label_channel,
-            identifier=get_identifier_for_device(device),
+            registry_identifier=get_identifier_for_device(device),
         )
         empty_label_alarm = HighAlarmBinarySensor(
             "binary_sensor.empty_label_alarm",
             coordinator,
             empty_label_channel,
-            identifier=get_identifier_for_device(device),
+            registry_identifier=get_identifier_for_device(device),
         )
 
         # Assert
@@ -190,19 +190,19 @@ class TestDeviceNaming(TestCase):
             "sensor.battery",
             coordinator,
             device,
-            identifier=get_identifier_for_device(device),
+            registry_identifier=get_identifier_for_device(device),
         )
         temperature = TemperatureSensor(
             "sensor.temperature",
             coordinator,
             channel,
-            identifier=get_identifier_for_device(device),
+            registry_identifier=get_identifier_for_device(device),
         )
         fan = FanStateSensor(
             "sensor.fan",
             coordinator,
             device,
-            identifier=f"{get_identifier_for_device(device)}-fan",
+            registry_identifier=f"{get_identifier_for_device(device)}-fan",
         )
 
         # Assert
@@ -236,19 +236,19 @@ class TestDeviceNaming(TestCase):
             "sensor.battery",
             coordinator,
             device,
-            identifier=get_identifier_for_device(device),
+            registry_identifier=get_identifier_for_device(device),
         )
         temperature = TemperatureSensor(
             "sensor.temperature",
             coordinator,
             channel,
-            identifier=get_identifier_for_device(device),
+            registry_identifier=get_identifier_for_device(device),
         )
         fan = FanStateSensor(
             "sensor.fan",
             coordinator,
             device,
-            identifier=f"{get_identifier_for_device(device)}-fan",
+            registry_identifier=f"{get_identifier_for_device(device)}-fan",
         )
 
         # Assert

@@ -38,25 +38,25 @@ def test_alarm_entities_expose_thresholds_and_active_states() -> None:
         "sensor.rfx_air_high_alarm",
         coordinator,
         channel,
-        identifier=get_identifier_for_device(device),
+        registry_identifier=get_identifier_for_device(device),
     )
     low_threshold = LowAlarmThresholdSensor(
         "sensor.rfx_air_low_alarm",
         coordinator,
         channel,
-        identifier=get_identifier_for_device(device),
+        registry_identifier=get_identifier_for_device(device),
     )
     high_active = HighAlarmBinarySensor(
         "binary_sensor.rfx_air_high_alarm",
         coordinator,
         channel,
-        identifier=get_identifier_for_device(device),
+        registry_identifier=get_identifier_for_device(device),
     )
     low_active = LowAlarmBinarySensor(
         "binary_sensor.rfx_air_low_alarm",
         coordinator,
         channel,
-        identifier=get_identifier_for_device(device),
+        registry_identifier=get_identifier_for_device(device),
     )
 
     assert high_threshold.name == "Air (Ch. 1) High Alarm Threshold"
@@ -106,7 +106,7 @@ def test_disabled_alarm_is_not_active() -> None:
         "binary_sensor.rfx_air_high_alarm",
         coordinator,
         channel,
-        identifier=get_identifier_for_device(device),
+        registry_identifier=get_identifier_for_device(device),
     )
 
     assert high_active.is_on is False
