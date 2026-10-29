@@ -7,10 +7,9 @@ from thermoworks_cloud.models import Fan
 
 from custom_components.thermoworks_cloud.binary_sensor import HighAlarmBinarySensor
 from custom_components.thermoworks_cloud.device import (
+    device_metadata,
     device_reference,
-    entity_device_info,
-    fan_device_info,
-    thermometer_device_info,
+    fan_metadata,
 )
 from custom_components.thermoworks_cloud.models import (
     ThermoworksChannel,
@@ -33,11 +32,11 @@ class TestDeviceNaming(TestCase):
         )
 
         # Act
-        thermometer_info = thermometer_device_info(device)
-        fan_info = fan_device_info(device)
+        device_info = device_metadata(device)
+        fan_info = fan_metadata(device)
 
         # Assert
-        self.assertEqual(thermometer_info["name"], "Patio BBQ")
+        self.assertEqual(device_info["name"], "Patio BBQ")
         self.assertEqual(fan_info["name"], "Patio BBQ Fan")
 
     def test_fan_name_falls_back_for_missing_or_empty_cloud_label(self):
@@ -56,8 +55,8 @@ class TestDeviceNaming(TestCase):
         )
 
         # Act
-        missing_label_fan_info = fan_device_info(missing_label_device)
-        empty_label_fan_info = fan_device_info(empty_label_device)
+        missing_label_fan_info = fan_metadata(missing_label_device)
+        empty_label_fan_info = fan_metadata(empty_label_device)
 
         # Assert
         self.assertEqual(
@@ -199,7 +198,7 @@ class TestDeviceNaming(TestCase):
             "sensor.battery",
             coordinator,
             device,
-            device_info=entity_device_info(thermometer_device_info(device)),
+            device_info=device_reference(device.get_identifier()),
         )
         temperature = TemperatureSensor(
             "sensor.temperature",
@@ -212,7 +211,7 @@ class TestDeviceNaming(TestCase):
             "sensor.fan",
             coordinator,
             device,
-            device_info=entity_device_info(fan_device_info(device)),
+            device_info=device_reference(device.get_identifier(), fan=True),
         )
 
         # Assert
@@ -246,7 +245,7 @@ class TestDeviceNaming(TestCase):
             "sensor.battery",
             coordinator,
             device,
-            device_info=entity_device_info(thermometer_device_info(device)),
+            device_info=device_reference(device.get_identifier()),
         )
         temperature = TemperatureSensor(
             "sensor.temperature",
@@ -259,7 +258,7 @@ class TestDeviceNaming(TestCase):
             "sensor.fan",
             coordinator,
             device,
-            device_info=entity_device_info(fan_device_info(device)),
+            device_info=device_reference(device.get_identifier(), fan=True),
         )
 
         # Assert

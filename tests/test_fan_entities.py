@@ -8,8 +8,8 @@ from thermoworks_cloud.models import Fan
 from custom_components.thermoworks_cloud.binary_sensor import FanConnectedSensor
 from custom_components.thermoworks_cloud.const import DOMAIN
 from custom_components.thermoworks_cloud.device import (
-    entity_device_info,
-    fan_device_info,
+    device_reference,
+    fan_metadata,
 )
 from custom_components.thermoworks_cloud.models import ThermoworksDevice
 from custom_components.thermoworks_cloud.sensor import (
@@ -32,25 +32,25 @@ def test_fan_entities_share_child_device_info() -> None:
         "binary_sensor.rfx_fan_connected",
         coordinator,
         device,
-        device_info=entity_device_info(fan_device_info(device)),
+        device_info=device_reference(device.get_identifier(), fan=True),
     )
     state = FanStateSensor(
         "sensor.rfx_fan_state",
         coordinator,
         device,
-        device_info=entity_device_info(fan_device_info(device)),
+        device_info=device_reference(device.get_identifier(), fan=True),
     )
     set_temperature = FanSetTemperatureSensor(
         "sensor.rfx_fan_set_temperature",
         coordinator,
         device,
-        device_info=entity_device_info(fan_device_info(device)),
+        device_info=device_reference(device.get_identifier(), fan=True),
     )
 
     assert connected.device_info == state.device_info == set_temperature.device_info
     assert connected.device_info["identifiers"] == {(DOMAIN, "RFX123-fan")}
-    assert fan_device_info(device)["name"] == "RFX Gateway Fan"
-    assert fan_device_info(device)["via_device"] == (DOMAIN, "RFX123")
+    assert fan_metadata(device)["name"] == "RFX Gateway Fan"
+    assert fan_metadata(device)["via_device"] == (DOMAIN, "RFX123")
     assert connected.is_on is True
     assert state.native_value == "Blowing"
     assert set_temperature.native_value == 150
@@ -72,19 +72,19 @@ def test_fan_value_sensors_unavailable_when_disconnected() -> None:
         "binary_sensor.rfx_fan_connected",
         coordinator,
         device,
-        device_info=entity_device_info(fan_device_info(device)),
+        device_info=device_reference(device.get_identifier(), fan=True),
     )
     state = FanStateSensor(
         "sensor.rfx_fan_state",
         coordinator,
         device,
-        device_info=entity_device_info(fan_device_info(device)),
+        device_info=device_reference(device.get_identifier(), fan=True),
     )
     set_temperature = FanSetTemperatureSensor(
         "sensor.rfx_fan_set_temperature",
         coordinator,
         device,
-        device_info=entity_device_info(fan_device_info(device)),
+        device_info=device_reference(device.get_identifier(), fan=True),
     )
 
     assert connected.is_on is False

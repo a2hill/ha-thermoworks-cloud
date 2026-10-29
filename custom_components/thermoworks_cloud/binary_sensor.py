@@ -1,4 +1,4 @@
-"""Binary sensors for Thermoworks Cloud fan accessories."""
+"""Binary sensor entities for ThermoWorks Cloud."""
 
 from homeassistant.components.binary_sensor import (
     ENTITY_ID_FORMAT,
@@ -7,13 +7,13 @@ from homeassistant.components.binary_sensor import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.device_registry import DeviceInfo, format_mac
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity import async_generate_entity_id
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from .const import DOMAIN
-from .device import entity_device_info, fan_device_info, thermometer_device_info
+from .device import device_identifier, device_reference
 from .entity import ThermoworksEntity
 from .coordinator import ThermoworksCoordinator
 from .models import (
@@ -44,14 +44,14 @@ async def async_setup_entry(
             ),
             coordinator=coordinator,
             device=device,
-            device_info=entity_device_info(fan_device_info(device)),
+            device_info=device_reference(device.get_identifier(), fan=True),
         )
         for device in coordinator.data.devices
         if DeviceWithFan.is_protocol_compliant(device)
     ]
 
     for device in coordinator.data.devices:
-        parent_device_info = entity_device_info(thermometer_device_info(device))
+        parent_device_info = device_reference(device.get_identifier())
         for device_channel in coordinator.data.device_channels.get(
             device.get_identifier(), []
         ):
@@ -130,7 +130,7 @@ class FanConnectedSensor(ThermoworksEntity, BinarySensorEntity):
     @property
     def unique_id(self) -> str:
         """Return unique id."""
-        return f"{DOMAIN}-{format_mac(self._device.get_identifier())}-fan-connected"
+        return f"{DOMAIN}-{device_identifier(self._device.get_identifier())}-fan-connected"
 
 
 class AlarmBinarySensor(ThermoworksEntity, BinarySensorEntity):
@@ -201,7 +201,7 @@ class HighAlarmBinarySensor(AlarmBinarySensor):
     @property
     def unique_id(self) -> str:
         """Return unique id."""
-        return f"{DOMAIN}-{format_mac(self._device_serial)}-{self._device_channel.number}-high-alarm"
+        return f"{DOMAIN}-{device_identifier(self._device_serial)}-{self._device_channel.number}-high-alarm"
 
 
 class LowAlarmBinarySensor(AlarmBinarySensor):
@@ -222,4 +222,4 @@ class LowAlarmBinarySensor(AlarmBinarySensor):
     @property
     def unique_id(self) -> str:
         """Return unique id."""
-        return f"{DOMAIN}-{format_mac(self._device_serial)}-{self._device_channel.number}-low-alarm"
+        return f"{DOMAIN}-{device_identifier(self._device_serial)}-{self._device_channel.number}-low-alarm"

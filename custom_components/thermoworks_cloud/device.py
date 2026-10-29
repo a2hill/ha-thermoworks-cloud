@@ -1,4 +1,8 @@
-"""Device descriptions and registration for ThermoWorks Cloud."""
+"""Device identity, metadata, and registration for ThermoWorks Cloud.
+
+Metadata describes devices in the registry. References associate entities with
+those devices using identifiers only. Both use Home Assistant's DeviceInfo type.
+"""
 
 from collections.abc import Iterable
 
@@ -15,20 +19,26 @@ from .const import DOMAIN
 from .models import DeviceWithFan, ThermoworksDevice
 
 
-def device_reference(device_identifier: str) -> DeviceInfo:
-    """Identify an existing thermometer device without supplying metadata."""
-    return DeviceInfo(identifiers={(DOMAIN, format_mac(device_identifier))})
+def device_identifier(identifier: str, *, fan: bool = False) -> str:
+    """Format the cloud identifier, adding the accessory suffix for a fan device."""
+    identifier = format_mac(identifier)
+    return f"{identifier}-fan" if fan else identifier
 
 
-def entity_device_info(info: DeviceInfo) -> DeviceInfo:
-    """Associate an entity with a centrally managed device without repeating metadata."""
-    return DeviceInfo(identifiers=info["identifiers"])
+def device_reference(identifier: str, *, fan: bool = False) -> DeviceInfo:
+    """Associate an entity with a device or its fan accessory using identifiers only."""
+    return DeviceInfo(identifiers={(DOMAIN, device_identifier(identifier, fan=fan))})
 
 
-def thermometer_device_info(device: ThermoworksDevice) -> DeviceInfo:
+def account_reference(config_entry: ConfigEntry) -> DeviceInfo:
+    """Associate an entity with its account's service device."""
+    return DeviceInfo(identifiers={(DOMAIN, config_entry.entry_id)})
+
+
+def device_metadata(device: ThermoworksDevice) -> DeviceInfo:
     """Describe a ThermoWorks device using its identity and cloud metadata."""
     return DeviceInfo(
-        identifiers={(DOMAIN, format_mac(device.get_identifier()))},
+        identifiers=device_reference(device.get_identifier())["identifiers"],
         name=device.label,
         sw_version=device.firmware,
         manufacturer="ThermoWorks",
@@ -37,21 +47,20 @@ def thermometer_device_info(device: ThermoworksDevice) -> DeviceInfo:
     )
 
 
-def fan_device_info(device: DeviceWithFan) -> DeviceInfo:
-    """Describe the separate fan accessory and its connection to the thermometer."""
-    identifier = format_mac(device.get_identifier())
+def fan_metadata(device: DeviceWithFan) -> DeviceInfo:
+    """Describe the separate fan accessory and its connection to the parent device."""
     return DeviceInfo(
-        identifiers={(DOMAIN, f"{identifier}-fan")},
+        identifiers=device_reference(device.get_identifier(), fan=True)["identifiers"],
         name=f"{device.label or device.display_name()} Fan",
         manufacturer="ThermoWorks",
-        via_device=(DOMAIN, identifier),
+        via_device=(DOMAIN, device_identifier(device.get_identifier())),
     )
 
 
-def account_device_info(config_entry: ConfigEntry) -> DeviceInfo:
+def account_metadata(config_entry: ConfigEntry) -> DeviceInfo:
     """Describe the account-wide service device used by the scan interval control."""
     return DeviceInfo(
-        identifiers={(DOMAIN, config_entry.entry_id)},
+        identifiers=account_reference(config_entry)["identifiers"],
         name=config_entry.title,
         entry_type=DeviceEntryType.SERVICE,
     )
@@ -66,10 +75,10 @@ def async_register_devices(
     """Create or update device metadata before entities consume refreshed data."""
     registry = dr.async_get(hass)
     registry.async_get_or_create(
-        config_entry_id=config_entry.entry_id, **account_device_info(config_entry)
+        config_entry_id=config_entry.entry_id, **account_metadata(config_entry)
     )
     for device in devices:
-        info = thermometer_device_info(device)
+        info = device_metadata(device)
         if not info["name"]:
             # Use the account name when the cloud supplies no label.
             info["name"] = config_entry.title
@@ -80,5 +89,5 @@ def async_register_devices(
         )
         if DeviceWithFan.is_protocol_compliant(device):
             registry.async_get_or_create(
-                config_entry_id=config_entry.entry_id, **fan_device_info(device)
+                config_entry_id=config_entry.entry_id, **fan_metadata(device)
             )

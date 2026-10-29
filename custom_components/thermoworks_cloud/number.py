@@ -46,7 +46,7 @@ from .const import (
     MAX_SCAN_INTERVAL_SECONDS,
     MIN_SCAN_INTERVAL_SECONDS,
 )
-from .device import account_device_info, entity_device_info
+from .device import account_reference
 
 _LOGGER: logging.Logger = logging.getLogger(__package__)
 
@@ -61,7 +61,7 @@ async def async_setup_entry(
         [
             ScanIntervalNumber(
                 config_entry,
-                device_info=entity_device_info(account_device_info(config_entry)),
+                device_info=account_reference(config_entry),
             )
         ]
     )
