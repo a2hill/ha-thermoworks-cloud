@@ -35,38 +35,38 @@ class TestDeviceNaming(TestCase):
         self.assertEqual(battery.device_info["name"], "Patio BBQ")
         self.assertEqual(fan.device_info["name"], "Patio BBQ Fan")
 
-    def test_fan_name_falls_back_when_cloud_label_is_missing(self):
+    def test_fan_name_falls_back_for_missing_or_empty_cloud_label(self):
         # Setup
-        device = ThermoworksDevice(
+        missing_label_device = ThermoworksDevice(
             serial="RFX123",
             label=None,
             device_name="RFX Gateway",
             fan=Fan(connected=True),
         )
-
-        # Act
-        fan = FanStateSensor("sensor.fan", SimpleNamespace(), device)
-
-        # Assert
-        self.assertEqual(
-            fan.device_info["name"], "unnamed device (RFX Gateway - RFX123) Fan"
-        )
-
-    def test_fan_name_falls_back_when_cloud_label_is_empty(self):
-        # Setup
-        device = ThermoworksDevice(
+        empty_label_device = ThermoworksDevice(
             serial="RFX123",
             label="",
             device_name="RFX Gateway",
             fan=Fan(connected=True),
         )
+        coordinator = SimpleNamespace()
 
         # Act
-        fan = FanStateSensor("sensor.fan", SimpleNamespace(), device)
+        missing_label_fan = FanStateSensor(
+            "sensor.missing_label_fan", coordinator, missing_label_device
+        )
+        empty_label_fan = FanStateSensor(
+            "sensor.empty_label_fan", coordinator, empty_label_device
+        )
 
         # Assert
         self.assertEqual(
-            fan.device_info["name"], "unnamed device (RFX Gateway - RFX123) Fan"
+            missing_label_fan.device_info["name"],
+            "unnamed device (RFX Gateway - RFX123) Fan",
+        )
+        self.assertEqual(
+            empty_label_fan.device_info["name"],
+            "unnamed device (RFX Gateway - RFX123) Fan",
         )
 
     def test_channel_name_capitalization(self):
@@ -102,51 +102,59 @@ class TestDeviceNaming(TestCase):
         self.assertEqual(threshold.name, "Air TEMP (Ch. 3) High Alarm Threshold")
         self.assertEqual(alarm.name, "Air TEMP (Ch. 3) High Alarm")
 
-    def test_channel_names_fall_back_when_label_is_missing(self):
+    def test_channel_names_fall_back_for_missing_or_empty_label(self):
         # Setup
-        channel = ThermoworksChannel(
+        missing_label_channel = ThermoworksChannel(
             number="1", value=100, units="F", status="ok", label=None
         )
-        coordinator = SimpleNamespace()
-
-        # Act
-        temperature = TemperatureSensor(
-            "sensor.temperature", coordinator, "RFX123", channel
-        )
-        threshold = HighAlarmThresholdSensor(
-            "sensor.threshold", coordinator, "RFX123", channel
-        )
-        alarm = HighAlarmBinarySensor(
-            "binary_sensor.alarm", coordinator, "RFX123", channel
-        )
-
-        # Assert
-        self.assertEqual(temperature.name, "Unnamed channel (ch. 1)")
-        self.assertEqual(threshold.name, "unnamed channel (Ch. 1) High Alarm Threshold")
-        self.assertEqual(alarm.name, "unnamed channel (Ch. 1) High Alarm")
-
-    def test_channel_names_fall_back_when_label_is_empty(self):
-        # Setup
-        channel = ThermoworksChannel(
-            number="1", value=100, units="F", status="ok", label=""
+        empty_label_channel = ThermoworksChannel(
+            number="2", value=100, units="F", status="ok", label=""
         )
         coordinator = SimpleNamespace()
 
         # Act
-        temperature = TemperatureSensor(
-            "sensor.temperature", coordinator, "RFX123", channel
+        missing_label_temperature = TemperatureSensor(
+            "sensor.missing_label_temperature",
+            coordinator,
+            "RFX123",
+            missing_label_channel,
         )
-        threshold = HighAlarmThresholdSensor(
-            "sensor.threshold", coordinator, "RFX123", channel
+        empty_label_temperature = TemperatureSensor(
+            "sensor.empty_label_temperature", coordinator, "RFX123", empty_label_channel
         )
-        alarm = HighAlarmBinarySensor(
-            "binary_sensor.alarm", coordinator, "RFX123", channel
+        missing_label_threshold = HighAlarmThresholdSensor(
+            "sensor.missing_label_threshold",
+            coordinator,
+            "RFX123",
+            missing_label_channel,
+        )
+        empty_label_threshold = HighAlarmThresholdSensor(
+            "sensor.empty_label_threshold", coordinator, "RFX123", empty_label_channel
+        )
+        missing_label_alarm = HighAlarmBinarySensor(
+            "binary_sensor.missing_label_alarm",
+            coordinator,
+            "RFX123",
+            missing_label_channel,
+        )
+        empty_label_alarm = HighAlarmBinarySensor(
+            "binary_sensor.empty_label_alarm",
+            coordinator,
+            "RFX123",
+            empty_label_channel,
         )
 
         # Assert
-        self.assertEqual(temperature.name, "Unnamed channel (ch. 1)")
-        self.assertEqual(threshold.name, "unnamed channel (Ch. 1) High Alarm Threshold")
-        self.assertEqual(alarm.name, "unnamed channel (Ch. 1) High Alarm")
+        self.assertEqual(missing_label_temperature.name, "Unnamed channel (ch. 1)")
+        self.assertEqual(empty_label_temperature.name, "Unnamed channel (ch. 2)")
+        self.assertEqual(
+            missing_label_threshold.name, "unnamed channel (Ch. 1) High Alarm Threshold"
+        )
+        self.assertEqual(
+            empty_label_threshold.name, "unnamed channel (Ch. 2) High Alarm Threshold"
+        )
+        self.assertEqual(missing_label_alarm.name, "unnamed channel (Ch. 1) High Alarm")
+        self.assertEqual(empty_label_alarm.name, "unnamed channel (Ch. 2) High Alarm")
 
     def test_entity_identity_uses_device_id_when_available(self):
         # Setup
