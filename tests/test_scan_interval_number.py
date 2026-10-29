@@ -8,13 +8,14 @@ from homeassistant.components.number import NumberDeviceClass
 from homeassistant.const import CONF_SCAN_INTERVAL, EntityCategory, UnitOfTime
 from homeassistant.helpers.device_registry import DeviceEntryType
 
+from custom_components.thermoworks_cloud.config_flow import OptionsFlowHandler
 from custom_components.thermoworks_cloud.const import (
     DEFAULT_SCAN_INTERVAL_SECONDS,
     DOMAIN,
     MAX_SCAN_INTERVAL_SECONDS,
     MIN_SCAN_INTERVAL_SECONDS,
 )
-from custom_components.thermoworks_cloud.config_flow import OptionsFlowHandler
+from custom_components.thermoworks_cloud.device import account_metadata
 from custom_components.thermoworks_cloud.number import ScanIntervalNumber
 
 
@@ -57,9 +58,13 @@ def test_static_attributes() -> None:
 def test_bound_to_config_entry_service_device() -> None:
     """The entity hangs off a service device that stands for the config entry,
     not off any individual thermometer (no manufacturer / model)."""
-    entity, _ = _build_entity()
+    # Setup
+    config_entry = SimpleNamespace(entry_id="entry123", title="ThermoWorks Cloud")
 
-    device_info = entity.device_info
+    # Act
+    device_info = account_metadata(config_entry)
+
+    # Assert
     assert device_info["identifiers"] == {(DOMAIN, "entry123")}
     assert device_info["entry_type"] == DeviceEntryType.SERVICE
     assert device_info["name"] == "ThermoWorks Cloud"

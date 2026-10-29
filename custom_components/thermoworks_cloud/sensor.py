@@ -1,6 +1,6 @@
-"""Sensors representing a Thermoworks thermometer."""
-from collections.abc import Mapping
+"""Sensor entities for ThermoWorks Cloud."""
 import logging
+from collections.abc import Mapping
 
 from homeassistant.components.sensor import (
     ENTITY_ID_FORMAT,
@@ -9,16 +9,22 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import PERCENTAGE, SIGNAL_STRENGTH_DECIBELS_MILLIWATT, UnitOfTemperature, UnitOfTime
+from homeassistant.const import (
+    PERCENTAGE,
+    SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
+    UnitOfTemperature,
+    UnitOfTime,
+)
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.util import dt as dt_util
-from homeassistant.helpers.device_registry import format_mac, DeviceInfo
 from homeassistant.helpers.entity import async_generate_entity_id
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.update_coordinator import CoordinatorEntity, UpdateFailed
+from homeassistant.helpers.update_coordinator import UpdateFailed
+from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN
-
+from .coordinator import ThermoworksCoordinator
+from .device import get_identifier_for_device
+from .entity import ThermoworksEntity
 from .models import (
     ChannelWithHighAlarm,
     ChannelWithLowAlarm,
@@ -30,8 +36,6 @@ from .models import (
     ThermoworksChannel,
     get_missing_attributes,
 )
-
-from .coordinator import ThermoworksCoordinator
 
 _LOGGER: logging.Logger = logging.getLogger(__package__)
 
@@ -49,6 +53,7 @@ async def async_setup_entry(
 
     new_entities = []
     for device in coordinator.data.devices:
+        registry_identifier = get_identifier_for_device(device)
 
         # Only create battery sensor if the device has battery capability
         if DeviceWithBattery.is_protocol_compliant(device):
@@ -61,6 +66,7 @@ async def async_setup_entry(
                     ),
                     coordinator=coordinator,
                     device=device,
+                    registry_identifier=registry_identifier,
                 )
             )
         else:
@@ -81,6 +87,7 @@ async def async_setup_entry(
                     ),
                     coordinator=coordinator,
                     device=device,
+                    registry_identifier=registry_identifier,
                 )
             )
         else:
@@ -100,6 +107,7 @@ async def async_setup_entry(
                     ),
                     coordinator=coordinator,
                     device=device,
+                    registry_identifier=registry_identifier,
                 )
             )
         else:
@@ -119,6 +127,7 @@ async def async_setup_entry(
                     ),
                     coordinator=coordinator,
                     device=device,
+                    registry_identifier=registry_identifier,
                 )
             )
         else:
@@ -139,6 +148,7 @@ async def async_setup_entry(
                         ),
                         coordinator=coordinator,
                         device=device,
+                        registry_identifier=f"{registry_identifier}-fan",
                     ),
                     FanSetTemperatureSensor(
                         entity_id=async_generate_entity_id(
@@ -148,6 +158,7 @@ async def async_setup_entry(
                         ),
                         coordinator=coordinator,
                         device=device,
+                        registry_identifier=f"{registry_identifier}-fan",
                     ),
                 ]
             )
@@ -158,7 +169,7 @@ async def async_setup_entry(
                 get_missing_attributes(device, DeviceWithFan)
             )
 
-        for device_channel in coordinator.data.device_channels.get(device.get_identifier(), []):
+        for device_channel in coordinator.data.device_channels.get(registry_identifier, []):
             if device_channel.units == "H":
                 new_entities.append(
                     HumiditySensor(
@@ -168,8 +179,8 @@ async def async_setup_entry(
                             hass=hass,
                         ),
                         coordinator=coordinator,
-                        device_serial=device.get_identifier(),
                         device_channel=device_channel,
+                        registry_identifier=registry_identifier,
                     )
                 )
             elif device_channel.units in ("F", "C"):
@@ -181,8 +192,8 @@ async def async_setup_entry(
                             hass=hass,
                         ),
                         coordinator=coordinator,
-                        device_serial=device.get_identifier(),
                         device_channel=device_channel,
+                        registry_identifier=registry_identifier,
                     )
                 )
             else:
@@ -202,8 +213,8 @@ async def async_setup_entry(
                             hass=hass,
                         ),
                         coordinator=coordinator,
-                        device_serial=device.get_identifier(),
                         device_channel=device_channel,
+                        registry_identifier=registry_identifier,
                     )
                 )
 
@@ -216,8 +227,8 @@ async def async_setup_entry(
                             hass=hass,
                         ),
                         coordinator=coordinator,
-                        device_serial=device.get_identifier(),
                         device_channel=device_channel,
+                        registry_identifier=registry_identifier,
                     )
                 )
 
@@ -228,7 +239,7 @@ async def async_setup_entry(
         _LOGGER.debug("No new entities created")
 
 
-class BatterySensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
+class BatterySensor(ThermoworksEntity, SensorEntity):
     """Implementation of a sensor."""
 
     # https://developers.home-assistant.io/docs/core/entity/sensor/#available-device-classes
@@ -240,7 +251,6 @@ class BatterySensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
     # Naming
     # https://developers.home-assistant.io/docs/core/entity#entity-naming
     # https://developers.home-assistant.io/docs/internationalization/core/#name-of-entities
-    _attr_has_entity_name = True
     _attr_translation_key = "battery"
 
     # API data is in percent with no decimal place
@@ -253,10 +263,11 @@ class BatterySensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
         entity_id: str,
         coordinator: ThermoworksCoordinator,
         device: DeviceWithBattery,
+        *,
+        registry_identifier: str,
     ) -> None:
         """Initialise sensor."""
-        super().__init__(coordinator)
-        self.entity_id = entity_id
+        super().__init__(entity_id, coordinator, registry_identifier=registry_identifier)
         self._device = device
 
     @callback
@@ -274,26 +285,6 @@ class BatterySensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
                 f"attribute(s): {get_missing_attributes(device, DeviceWithBattery)}")
         self._device = device
         self.async_write_ha_state()
-
-    @property
-    def device_info(self) -> DeviceInfo:
-        """Return device information."""
-        # Identifiers are what group entities into the same device.
-        # If your device is created elsewhere, you can just specify the indentifiers parameter.
-        # If your device connects via another device, add via_device parameter with the indentifiers of that device.
-        return DeviceInfo(
-            identifiers={
-                (
-                    DOMAIN,
-                    f"{format_mac(self._device.get_identifier())}",
-                )
-            },
-            name=self._device.label,
-            sw_version=self._device.firmware,
-            manufacturer="ThermoWorks",
-            model=self._device.device_name,
-            serial_number=self._device.serial,
-        )
 
     @property
     def icon(self) -> str | None:
@@ -319,14 +310,13 @@ class BatterySensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
         """Return unique id."""
         # All entities must have a unique id.  Think carefully what you want this to be as
         # changing it later will cause HA to create new entities.
-        return f"{DOMAIN}-{format_mac(self._device.get_identifier())}"
+        return f"{DOMAIN}-{self._registry_identifier}"
 
 
-class LastSeenSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
+class LastSeenSensor(ThermoworksEntity, SensorEntity):
     """Implementation of a last seen timestamp sensor."""
 
     _attr_device_class = SensorDeviceClass.TIMESTAMP
-    _attr_has_entity_name = True
     _attr_translation_key = "last_seen"
 
     def __init__(
@@ -334,9 +324,10 @@ class LastSeenSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
         entity_id: str,
         coordinator: ThermoworksCoordinator,
         device: DeviceWithLastSeen,
+        *,
+        registry_identifier: str,
     ) -> None:
-        super().__init__(coordinator)
-        self.entity_id = entity_id
+        super().__init__(entity_id, coordinator, registry_identifier=registry_identifier)
         self._device = device
 
     @callback
@@ -355,17 +346,6 @@ class LastSeenSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
         self.async_write_ha_state()
 
     @property
-    def device_info(self) -> DeviceInfo:
-        return DeviceInfo(
-            identifiers={
-                (
-                    DOMAIN,
-                    f"{format_mac(self._device.get_identifier())}",
-                )
-            }
-        )
-
-    @property
     def native_value(self) -> str | None:
         if self._device.last_seen is None:
             return None
@@ -378,15 +358,14 @@ class LastSeenSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
 
     @property
     def unique_id(self) -> str:
-        return f"{DOMAIN}-{format_mac(self._device.get_identifier())}-last-seen"
+        return f"{DOMAIN}-{self._registry_identifier}-last-seen"
 
 
-class TransmitIntervalSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
+class TransmitIntervalSensor(ThermoworksEntity, SensorEntity):
     """Implementation of a transmit interval sensor."""
 
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = UnitOfTime.SECONDS
-    _attr_has_entity_name = True
     _attr_translation_key = "transmit_interval"
 
     def __init__(
@@ -394,9 +373,10 @@ class TransmitIntervalSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEn
         entity_id: str,
         coordinator: ThermoworksCoordinator,
         device: DeviceWithTransmitInterval,
+        *,
+        registry_identifier: str,
     ) -> None:
-        super().__init__(coordinator)
-        self.entity_id = entity_id
+        super().__init__(entity_id, coordinator, registry_identifier=registry_identifier)
         self._device = device
 
     @callback
@@ -415,33 +395,21 @@ class TransmitIntervalSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEn
         self.async_write_ha_state()
 
     @property
-    def device_info(self) -> DeviceInfo:
-        return DeviceInfo(
-            identifiers={
-                (
-                    DOMAIN,
-                    f"{format_mac(self._device.get_identifier())}",
-                )
-            }
-        )
-
-    @property
     def native_value(self) -> int | None:
         return self._device.transmit_interval_in_seconds
 
     @property
     def unique_id(self) -> str:
-        return f"{DOMAIN}-{format_mac(self._device.get_identifier())}-transmit-interval"
+        return f"{DOMAIN}-{self._registry_identifier}-transmit-interval"
 
 
-class ChannelSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
+class ChannelSensor(ThermoworksEntity, SensorEntity):
     """Base class for thermoworks channel sensors."""
 
     _device_channel: ThermoworksChannel
 
     # https://developers.home-assistant.io/docs/core/entity/sensor/#available-state-classes
     _attr_state_class = SensorStateClass.MEASUREMENT
-    _attr_has_entity_name = True
 
     # API data is given at higher precision, but that isn't needed
     # https://developers.home-assistant.io/docs/core/entity/sensor#properties
@@ -451,22 +419,21 @@ class ChannelSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
         self,
         entity_id: str,
         coordinator: ThermoworksCoordinator,
-        device_serial: str,
         device_channel: ThermoworksChannel,
+        *,
+        registry_identifier: str,
     ) -> None:
         """Initialize the sensor."""
 
-        super().__init__(coordinator)
-        self.entity_id = entity_id
+        super().__init__(entity_id, coordinator, registry_identifier=registry_identifier)
         self._device_channel = device_channel
-        self._device_serial = device_serial
 
     @callback
     def _handle_coordinator_update(self) -> None:
         """Update sensor with latest data from coordinator."""
         # This method is called by your DataUpdateCoordinator when a successful update runs.
         device_channel = self.coordinator.get_device_channel_by_id(
-            device_id=self._device_serial, channel_id=self._device_channel.number
+            device_id=self._registry_identifier, channel_id=self._device_channel.number
         )
         if not device_channel:
             raise UpdateFailed(
@@ -474,21 +441,6 @@ class ChannelSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
                 "is not found")
         self._device_channel = device_channel
         self.async_write_ha_state()
-
-    @property
-    def device_info(self) -> DeviceInfo:
-        """Return device information."""
-        # Identifiers are what group entities into the same device.
-        # If your device is created elsewhere, you can just specify the indentifiers parameter.
-        # If your device connects via another device, add via_device parameter with the indentifiers of that device.
-        return DeviceInfo(
-            identifiers={
-                (
-                    DOMAIN,
-                    f"{format_mac(self._device_serial)}",
-                )
-            }
-        )
 
     @property
     def name(self) -> str:
@@ -509,16 +461,12 @@ class ChannelSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
         # in Lovelace and HA will automatically calculate the correct value.
         return float(self._device_channel.value)
 
-
     @property
     def unique_id(self) -> str:
         """Return unique id."""
         # All entities must have a unique id.  Think carefully what you want this to be as
         # changing it later will cause HA to create new entities.
-        return (
-            f"{DOMAIN}-{format_mac(self._device_serial)
-                        }-{self._device_channel.number}"
-        )
+        return f"{DOMAIN}-{self._registry_identifier}-{self._device_channel.number}"
 
 class TemperatureSensor(ChannelSensor):
     """Implementation of a thermoworks temperature sensor."""
@@ -632,7 +580,7 @@ class HighAlarmThresholdSensor(AlarmThresholdSensor):
     @property
     def unique_id(self) -> str:
         """Return unique id."""
-        return f"{DOMAIN}-{format_mac(self._device_serial)}-{self._device_channel.number}-high-alarm-threshold"
+        return f"{DOMAIN}-{self._registry_identifier}-{self._device_channel.number}-high-alarm-threshold"
 
 
 class LowAlarmThresholdSensor(AlarmThresholdSensor):
@@ -653,23 +601,22 @@ class LowAlarmThresholdSensor(AlarmThresholdSensor):
     @property
     def unique_id(self) -> str:
         """Return unique id."""
-        return f"{DOMAIN}-{format_mac(self._device_serial)}-{self._device_channel.number}-low-alarm-threshold"
+        return f"{DOMAIN}-{self._registry_identifier}-{self._device_channel.number}-low-alarm-threshold"
 
 
-class FanSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
+class FanSensor(ThermoworksEntity, SensorEntity):
     """Base class for Thermoworks fan accessory sensors."""
-
-    _attr_has_entity_name = True
 
     def __init__(
         self,
         entity_id: str,
         coordinator: ThermoworksCoordinator,
         device: DeviceWithFan,
+        *,
+        registry_identifier: str,
     ) -> None:
         """Initialise sensor."""
-        super().__init__(coordinator)
-        self.entity_id = entity_id
+        super().__init__(entity_id, coordinator, registry_identifier=registry_identifier)
         self._device = device
 
     @callback
@@ -687,17 +634,6 @@ class FanSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
             )
         self._device = device
         self.async_write_ha_state()
-
-    @property
-    def device_info(self) -> DeviceInfo:
-        """Return fan device information."""
-        gateway_identifier = format_mac(self._device.get_identifier())
-        return DeviceInfo(
-            identifiers={(DOMAIN, f"{gateway_identifier}-fan")},
-            name=f"{self._device.label or self._device.display_name()} Fan",
-            manufacturer="ThermoWorks",
-            via_device=(DOMAIN, gateway_identifier),
-        )
 
     @property
     def available(self) -> bool:
@@ -720,7 +656,7 @@ class FanStateSensor(FanSensor):
     @property
     def unique_id(self) -> str:
         """Return unique id."""
-        return f"{DOMAIN}-{format_mac(self._device.get_identifier())}-fan-state"
+        return f"{DOMAIN}-{self._registry_identifier}-state"
 
 
 class FanSetTemperatureSensor(FanSensor):
@@ -764,10 +700,10 @@ class FanSetTemperatureSensor(FanSensor):
     @property
     def unique_id(self) -> str:
         """Return unique id."""
-        return f"{DOMAIN}-{format_mac(self._device.get_identifier())}-fan-set-temperature"
+        return f"{DOMAIN}-{self._registry_identifier}-set-temperature"
 
 
-class SignalSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
+class SignalSensor(ThermoworksEntity, SensorEntity):
     """Implementation of a sensor."""
 
     # https://developers.home-assistant.io/docs/core/entity/sensor/#available-device-classes
@@ -779,7 +715,6 @@ class SignalSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
     # Naming
     # https://developers.home-assistant.io/docs/core/entity#entity-naming
     # https://developers.home-assistant.io/docs/internationalization/core/#name-of-entities
-    _attr_has_entity_name = True
     _attr_translation_key = "signal"
 
     # API data is in negative decibels with no decimal place
@@ -792,10 +727,11 @@ class SignalSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
         entity_id: str,
         coordinator: ThermoworksCoordinator,
         device: DeviceWithSignalStrength,
+        *,
+        registry_identifier: str,
     ) -> None:
         """Initialise sensor."""
-        super().__init__(coordinator)
-        self.entity_id = entity_id
+        super().__init__(entity_id, coordinator, registry_identifier=registry_identifier)
         self._device = device
 
     @callback
@@ -815,21 +751,6 @@ class SignalSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
         self.async_write_ha_state()
 
     @property
-    def device_info(self) -> DeviceInfo:
-        """Return device information."""
-        # Identifiers are what group entities into the same device.
-        # If your device is created elsewhere, you can just specify the indentifiers parameter.
-        # If your device connects via another device, add via_device parameter with the indentifiers of that device.
-        return DeviceInfo(
-            identifiers={
-                (
-                    DOMAIN,
-                    f"{format_mac(self._device.get_identifier())}",
-                )
-            }
-        )
-
-    @property
     def native_value(self) -> int | float:
         """Return the state of the entity."""
         # Using native value and native unit of measurement, allows you to change units
@@ -841,4 +762,4 @@ class SignalSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
         """Return unique id."""
         # All entities must have a unique id.  Think carefully what you want this to be as
         # changing it later will cause HA to create new entities.
-        return f"{DOMAIN}-{format_mac(self._device.get_identifier())}-signal"
+        return f"{DOMAIN}-{self._registry_identifier}-signal"
