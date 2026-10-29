@@ -93,16 +93,16 @@ class TestDeviceRegistration(IsolatedAsyncioTestCase):
         self.assertEqual(updated_fan.id, fan.id)
         self.assertEqual(updated_fan.name, "Smoker Fan")
 
-    async def test_registration_preserves_names_for_devices_with_missing_metadata(self):
+    async def test_registration_names_devices_without_battery_data(self):
         # Setup
         no_battery_device = ThermoworksDevice(serial="NO_BATTERY", label="Freezer")
-        missing_label_device = ThermoworksDevice(
-            serial="MISSING_LABEL", label=None, battery=90
-        )
-        empty_label_device = ThermoworksDevice(
-            serial="EMPTY_LABEL", label="", battery=90
-        )
+        missing_label_device = ThermoworksDevice(serial="MISSING_LABEL", label=None)
+        empty_label_device = ThermoworksDevice(serial="EMPTY_LABEL", label="")
         devices = [no_battery_device, missing_label_device, empty_label_device]
+        existing_no_battery_parent = self.registry.async_get_or_create(
+            config_entry_id=self.entry.entry_id,
+            identifiers={("thermoworks_cloud", "NO_BATTERY")},
+        )
 
         # Act
         async_register_devices(self.hass, self.entry, devices)
@@ -118,6 +118,7 @@ class TestDeviceRegistration(IsolatedAsyncioTestCase):
         empty_label_parent = self.registry.async_get_device(
             identifiers={("thermoworks_cloud", "EMPTY_LABEL")}
         )
-        self.assertIsNone(no_battery_parent.name)
+        self.assertEqual(no_battery_parent.name, "Freezer")
+        self.assertEqual(no_battery_parent.id, existing_no_battery_parent.id)
         self.assertEqual(missing_label_parent.name, "ThermoWorks Cloud")
         self.assertEqual(empty_label_parent.name, "ThermoWorks Cloud")

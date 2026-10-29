@@ -12,7 +12,7 @@ from homeassistant.helpers.device_registry import (
 )
 
 from .const import DOMAIN
-from .models import DeviceWithBattery, DeviceWithFan, ThermoworksDevice
+from .models import DeviceWithFan, ThermoworksDevice
 
 
 def device_reference(device_identifier: str) -> DeviceInfo:
@@ -26,7 +26,7 @@ def entity_device_info(info: DeviceInfo) -> DeviceInfo:
 
 
 def thermometer_device_info(device: ThermoworksDevice) -> DeviceInfo:
-    """Describe a thermometer using the metadata previously supplied by battery entities."""
+    """Describe a ThermoWorks device using its identity and cloud metadata."""
     return DeviceInfo(
         identifiers={(DOMAIN, format_mac(device.get_identifier()))},
         name=device.label,
@@ -69,15 +69,9 @@ def async_register_devices(
         config_entry_id=config_entry.entry_id, **account_device_info(config_entry)
     )
     for device in devices:
-        # Only battery entities supplied thermometer metadata before this
-        # refactor. Keep identifier-only registration for the other devices.
-        info = (
-            thermometer_device_info(device)
-            if DeviceWithBattery.is_protocol_compliant(device)
-            else device_reference(device.get_identifier())
-        )
-        if "name" in info and not info["name"]:
-            # Match HA's initial fallback without clearing it on later refreshes.
+        info = thermometer_device_info(device)
+        if not info["name"]:
+            # Use the account name when the cloud supplies no label.
             info["name"] = config_entry.title
         # Missing optional cloud metadata should not erase known registry values.
         registry.async_get_or_create(
