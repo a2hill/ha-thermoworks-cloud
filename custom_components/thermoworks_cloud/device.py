@@ -19,16 +19,15 @@ from .const import DOMAIN
 from .models import DeviceWithFan, ThermoworksDevice
 
 
-def device_identifier(identifier: str, *, fan: bool = False) -> str:
-    """Format the cloud identifier, adding the accessory suffix for a fan device."""
-    identifier = format_mac(identifier)
-    return f"{identifier}-fan" if fan else identifier
+def get_identifier_for_device(device: ThermoworksDevice) -> str:
+    """Return the device's integration identifier in its established HA format."""
+    return format_mac(device.get_identifier())
 
 
 def device_metadata(device: ThermoworksDevice) -> DeviceInfo:
     """Describe a ThermoWorks device using its identity and cloud metadata."""
     return DeviceInfo(
-        identifiers={(DOMAIN, device_identifier(device.get_identifier()))},
+        identifiers={(DOMAIN, get_identifier_for_device(device))},
         name=device.label,
         sw_version=device.firmware,
         manufacturer="ThermoWorks",
@@ -40,10 +39,10 @@ def device_metadata(device: ThermoworksDevice) -> DeviceInfo:
 def fan_metadata(device: DeviceWithFan) -> DeviceInfo:
     """Describe the separate fan accessory and its connection to the parent device."""
     return DeviceInfo(
-        identifiers={(DOMAIN, device_identifier(device.get_identifier(), fan=True))},
+        identifiers={(DOMAIN, f"{get_identifier_for_device(device)}-fan")},
         name=f"{device.label or device.display_name()} Fan",
         manufacturer="ThermoWorks",
-        via_device=(DOMAIN, device_identifier(device.get_identifier())),
+        via_device=(DOMAIN, get_identifier_for_device(device)),
     )
 
 

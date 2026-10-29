@@ -76,30 +76,31 @@ class TestDeviceNaming(TestCase):
             number="3", value=200, units="F", status="ok", label="Air TEMP"
         )
         coordinator = SimpleNamespace()
+        device = ThermoworksDevice(serial="RFX123")
 
         # Act
         temperature = TemperatureSensor(
             "sensor.temperature",
             coordinator,
-            "RFX123",
+            device,
             temperature_channel,
         )
         humidity = HumiditySensor(
             "sensor.humidity",
             coordinator,
-            "RFX123",
+            device,
             humidity_channel,
         )
         threshold = HighAlarmThresholdSensor(
             "sensor.threshold",
             coordinator,
-            "RFX123",
+            device,
             alarm_channel,
         )
         alarm = HighAlarmBinarySensor(
             "binary_sensor.alarm",
             coordinator,
-            "RFX123",
+            device,
             alarm_channel,
         )
 
@@ -118,42 +119,43 @@ class TestDeviceNaming(TestCase):
             number="2", value=100, units="F", status="ok", label=""
         )
         coordinator = SimpleNamespace()
+        device = ThermoworksDevice(serial="RFX123")
 
         # Act
         missing_label_temperature = TemperatureSensor(
             "sensor.missing_label_temperature",
             coordinator,
-            "RFX123",
+            device,
             missing_label_channel,
         )
         empty_label_temperature = TemperatureSensor(
             "sensor.empty_label_temperature",
             coordinator,
-            "RFX123",
+            device,
             empty_label_channel,
         )
         missing_label_threshold = HighAlarmThresholdSensor(
             "sensor.missing_label_threshold",
             coordinator,
-            "RFX123",
+            device,
             missing_label_channel,
         )
         empty_label_threshold = HighAlarmThresholdSensor(
             "sensor.empty_label_threshold",
             coordinator,
-            "RFX123",
+            device,
             empty_label_channel,
         )
         missing_label_alarm = HighAlarmBinarySensor(
             "binary_sensor.missing_label_alarm",
             coordinator,
-            "RFX123",
+            device,
             missing_label_channel,
         )
         empty_label_alarm = HighAlarmBinarySensor(
             "binary_sensor.empty_label_alarm",
             coordinator,
-            "RFX123",
+            device,
             empty_label_channel,
         )
 
@@ -188,7 +190,7 @@ class TestDeviceNaming(TestCase):
         temperature = TemperatureSensor(
             "sensor.temperature",
             coordinator,
-            device.get_identifier(),
+            device,
             channel,
         )
         fan = FanStateSensor(
@@ -232,7 +234,7 @@ class TestDeviceNaming(TestCase):
         temperature = TemperatureSensor(
             "sensor.temperature",
             coordinator,
-            device.get_identifier(),
+            device,
             channel,
         )
         fan = FanStateSensor(

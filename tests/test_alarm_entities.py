@@ -9,7 +9,10 @@ from custom_components.thermoworks_cloud.binary_sensor import (
     HighAlarmBinarySensor,
     LowAlarmBinarySensor,
 )
-from custom_components.thermoworks_cloud.models import ThermoworksChannel
+from custom_components.thermoworks_cloud.models import (
+    ThermoworksChannel,
+    ThermoworksDevice,
+)
 from custom_components.thermoworks_cloud.sensor import (
     HighAlarmThresholdSensor,
     LowAlarmThresholdSensor,
@@ -19,6 +22,7 @@ from custom_components.thermoworks_cloud.sensor import (
 def test_alarm_entities_expose_thresholds_and_active_states() -> None:
     """Channel alarms expose configured values and active alarm state."""
     coordinator = SimpleNamespace(last_update_success=True)
+    device = ThermoworksDevice(serial="RFX123")
     channel = ThermoworksChannel(
         number="1",
         value=150,
@@ -32,25 +36,25 @@ def test_alarm_entities_expose_thresholds_and_active_states() -> None:
     high_threshold = HighAlarmThresholdSensor(
         "sensor.rfx_air_high_alarm",
         coordinator,
-        "RFX123",
+        device,
         channel,
     )
     low_threshold = LowAlarmThresholdSensor(
         "sensor.rfx_air_low_alarm",
         coordinator,
-        "RFX123",
+        device,
         channel,
     )
     high_active = HighAlarmBinarySensor(
         "binary_sensor.rfx_air_high_alarm",
         coordinator,
-        "RFX123",
+        device,
         channel,
     )
     low_active = LowAlarmBinarySensor(
         "binary_sensor.rfx_air_low_alarm",
         coordinator,
-        "RFX123",
+        device,
         channel,
     )
 
@@ -87,6 +91,7 @@ def test_alarm_entities_expose_thresholds_and_active_states() -> None:
 def test_disabled_alarm_is_not_active() -> None:
     """Disabled channel alarms do not report an active problem."""
     coordinator = SimpleNamespace(last_update_success=True)
+    device = ThermoworksDevice(serial="RFX123")
     channel = ThermoworksChannel(
         number="1",
         value=150,
@@ -99,7 +104,7 @@ def test_disabled_alarm_is_not_active() -> None:
     high_active = HighAlarmBinarySensor(
         "binary_sensor.rfx_air_high_alarm",
         coordinator,
-        "RFX123",
+        device,
         channel,
     )
 

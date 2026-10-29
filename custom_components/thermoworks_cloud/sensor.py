@@ -17,7 +17,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from .const import DOMAIN
-from .device import device_identifier
+from .device import get_identifier_for_device
 from .entity import ThermoworksEntity
 
 from .models import (
@@ -29,6 +29,7 @@ from .models import (
     DeviceWithSignalStrength,
     DeviceWithTransmitInterval,
     ThermoworksChannel,
+    ThermoworksDevice,
     get_missing_attributes,
 )
 
@@ -169,7 +170,7 @@ async def async_setup_entry(
                             hass=hass,
                         ),
                         coordinator=coordinator,
-                        device_serial=device.get_identifier(),
+                        device=device,
                         device_channel=device_channel,
                     )
                 )
@@ -182,7 +183,7 @@ async def async_setup_entry(
                             hass=hass,
                         ),
                         coordinator=coordinator,
-                        device_serial=device.get_identifier(),
+                        device=device,
                         device_channel=device_channel,
                     )
                 )
@@ -203,7 +204,7 @@ async def async_setup_entry(
                             hass=hass,
                         ),
                         coordinator=coordinator,
-                        device_serial=device.get_identifier(),
+                        device=device,
                         device_channel=device_channel,
                     )
                 )
@@ -217,7 +218,7 @@ async def async_setup_entry(
                             hass=hass,
                         ),
                         coordinator=coordinator,
-                        device_serial=device.get_identifier(),
+                        device=device,
                         device_channel=device_channel,
                     )
                 )
@@ -258,7 +259,7 @@ class BatterySensor(ThermoworksEntity, SensorEntity):
         super().__init__(
             entity_id,
             coordinator,
-            identifier=device_identifier(device.get_identifier()),
+            identifier=get_identifier_for_device(device),
         )
         self._device = device
 
@@ -302,7 +303,7 @@ class BatterySensor(ThermoworksEntity, SensorEntity):
         """Return unique id."""
         # All entities must have a unique id.  Think carefully what you want this to be as
         # changing it later will cause HA to create new entities.
-        return f"{DOMAIN}-{device_identifier(self._device.get_identifier())}"
+        return f"{DOMAIN}-{get_identifier_for_device(self._device)}"
 
 
 class LastSeenSensor(ThermoworksEntity, SensorEntity):
@@ -320,7 +321,7 @@ class LastSeenSensor(ThermoworksEntity, SensorEntity):
         super().__init__(
             entity_id,
             coordinator,
-            identifier=device_identifier(device.get_identifier()),
+            identifier=get_identifier_for_device(device),
         )
         self._device = device
 
@@ -352,7 +353,7 @@ class LastSeenSensor(ThermoworksEntity, SensorEntity):
 
     @property
     def unique_id(self) -> str:
-        return f"{DOMAIN}-{device_identifier(self._device.get_identifier())}-last-seen"
+        return f"{DOMAIN}-{get_identifier_for_device(self._device)}-last-seen"
 
 
 class TransmitIntervalSensor(ThermoworksEntity, SensorEntity):
@@ -371,7 +372,7 @@ class TransmitIntervalSensor(ThermoworksEntity, SensorEntity):
         super().__init__(
             entity_id,
             coordinator,
-            identifier=device_identifier(device.get_identifier()),
+            identifier=get_identifier_for_device(device),
         )
         self._device = device
 
@@ -396,7 +397,7 @@ class TransmitIntervalSensor(ThermoworksEntity, SensorEntity):
 
     @property
     def unique_id(self) -> str:
-        return f"{DOMAIN}-{device_identifier(self._device.get_identifier())}-transmit-interval"
+        return f"{DOMAIN}-{get_identifier_for_device(self._device)}-transmit-interval"
 
 
 class ChannelSensor(ThermoworksEntity, SensorEntity):
@@ -415,7 +416,7 @@ class ChannelSensor(ThermoworksEntity, SensorEntity):
         self,
         entity_id: str,
         coordinator: ThermoworksCoordinator,
-        device_serial: str,
+        device: ThermoworksDevice,
         device_channel: ThermoworksChannel,
     ) -> None:
         """Initialize the sensor."""
@@ -423,17 +424,17 @@ class ChannelSensor(ThermoworksEntity, SensorEntity):
         super().__init__(
             entity_id,
             coordinator,
-            identifier=device_identifier(device_serial),
+            identifier=get_identifier_for_device(device),
         )
         self._device_channel = device_channel
-        self._device_serial = device_serial
+        self._device = device
 
     @callback
     def _handle_coordinator_update(self) -> None:
         """Update sensor with latest data from coordinator."""
         # This method is called by your DataUpdateCoordinator when a successful update runs.
         device_channel = self.coordinator.get_device_channel_by_id(
-            device_id=self._device_serial, channel_id=self._device_channel.number
+            device_id=self._device.get_identifier(), channel_id=self._device_channel.number
         )
         if not device_channel:
             raise UpdateFailed(
@@ -467,7 +468,7 @@ class ChannelSensor(ThermoworksEntity, SensorEntity):
         # All entities must have a unique id.  Think carefully what you want this to be as
         # changing it later will cause HA to create new entities.
         return (
-            f"{DOMAIN}-{device_identifier(self._device_serial)
+            f"{DOMAIN}-{get_identifier_for_device(self._device)
                         }-{self._device_channel.number}"
         )
 
@@ -583,7 +584,7 @@ class HighAlarmThresholdSensor(AlarmThresholdSensor):
     @property
     def unique_id(self) -> str:
         """Return unique id."""
-        return f"{DOMAIN}-{device_identifier(self._device_serial)}-{self._device_channel.number}-high-alarm-threshold"
+        return f"{DOMAIN}-{get_identifier_for_device(self._device)}-{self._device_channel.number}-high-alarm-threshold"
 
 
 class LowAlarmThresholdSensor(AlarmThresholdSensor):
@@ -604,7 +605,7 @@ class LowAlarmThresholdSensor(AlarmThresholdSensor):
     @property
     def unique_id(self) -> str:
         """Return unique id."""
-        return f"{DOMAIN}-{device_identifier(self._device_serial)}-{self._device_channel.number}-low-alarm-threshold"
+        return f"{DOMAIN}-{get_identifier_for_device(self._device)}-{self._device_channel.number}-low-alarm-threshold"
 
 
 class FanSensor(ThermoworksEntity, SensorEntity):
@@ -620,7 +621,7 @@ class FanSensor(ThermoworksEntity, SensorEntity):
         super().__init__(
             entity_id,
             coordinator,
-            identifier=device_identifier(device.get_identifier(), fan=True),
+            identifier=f"{get_identifier_for_device(device)}-fan",
         )
         self._device = device
 
@@ -661,7 +662,7 @@ class FanStateSensor(FanSensor):
     @property
     def unique_id(self) -> str:
         """Return unique id."""
-        return f"{DOMAIN}-{device_identifier(self._device.get_identifier())}-fan-state"
+        return f"{DOMAIN}-{get_identifier_for_device(self._device)}-fan-state"
 
 
 class FanSetTemperatureSensor(FanSensor):
@@ -705,7 +706,7 @@ class FanSetTemperatureSensor(FanSensor):
     @property
     def unique_id(self) -> str:
         """Return unique id."""
-        return f"{DOMAIN}-{device_identifier(self._device.get_identifier())}-fan-set-temperature"
+        return f"{DOMAIN}-{get_identifier_for_device(self._device)}-fan-set-temperature"
 
 
 class SignalSensor(ThermoworksEntity, SensorEntity):
@@ -737,7 +738,7 @@ class SignalSensor(ThermoworksEntity, SensorEntity):
         super().__init__(
             entity_id,
             coordinator,
-            identifier=device_identifier(device.get_identifier()),
+            identifier=get_identifier_for_device(device),
         )
         self._device = device
 
@@ -769,4 +770,4 @@ class SignalSensor(ThermoworksEntity, SensorEntity):
         """Return unique id."""
         # All entities must have a unique id.  Think carefully what you want this to be as
         # changing it later will cause HA to create new entities.
-        return f"{DOMAIN}-{device_identifier(self._device.get_identifier())}-signal"
+        return f"{DOMAIN}-{get_identifier_for_device(self._device)}-signal"
