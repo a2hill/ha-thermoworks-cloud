@@ -69,27 +69,42 @@ class TestDeviceNaming(TestCase):
             fan.device_info["name"], "unnamed device (RFX Gateway - RFX123) Fan"
         )
 
-    def test_reading_names_preserve_existing_capitalization(self):
-        # Setup
-        temperature_channel = ThermoworksChannel(
-            number="1", value=100, units="F", status="ok", label="PORK Shoulder"
-        )
-        humidity_channel = ThermoworksChannel(
-            number="2", value=50, units="H", status="ok", label="DRY Box"
-        )
-        coordinator = SimpleNamespace()
+    def test_channel_name_capitalization(self):
+        cases = [
+            ("PORK Shoulder", "Pork shoulder (ch. 1)", "PORK Shoulder (Ch. 1)"),
+            ("dry box", "Dry box (ch. 1)", "dry box (Ch. 1)"),
+            ("Air TEMP", "Air temp (ch. 1)", "Air TEMP (Ch. 1)"),
+        ]
+        for label, reading_name, alarm_name in cases:
+            with self.subTest(label=label):
+                # Setup
+                temperature_channel = ThermoworksChannel(
+                    number="1", value=100, units="F", status="ok", label=label
+                )
+                humidity_channel = ThermoworksChannel(
+                    number="1", value=50, units="H", status="ok", label=label
+                )
+                coordinator = SimpleNamespace()
 
-        # Act
-        temperature = TemperatureSensor(
-            "sensor.temperature", coordinator, "RFX123", temperature_channel
-        )
-        humidity = HumiditySensor(
-            "sensor.humidity", coordinator, "RFX123", humidity_channel
-        )
+                # Act
+                temperature = TemperatureSensor(
+                    "sensor.temperature", coordinator, "RFX123", temperature_channel
+                )
+                humidity = HumiditySensor(
+                    "sensor.humidity", coordinator, "RFX123", humidity_channel
+                )
+                threshold = HighAlarmThresholdSensor(
+                    "sensor.threshold", coordinator, "RFX123", temperature_channel
+                )
+                alarm = HighAlarmBinarySensor(
+                    "binary_sensor.alarm", coordinator, "RFX123", temperature_channel
+                )
 
-        # Assert
-        self.assertEqual(temperature.name, "Pork shoulder (ch. 1)")
-        self.assertEqual(humidity.name, "Dry box (ch. 2)")
+                # Assert
+                self.assertEqual(temperature.name, reading_name)
+                self.assertEqual(humidity.name, reading_name)
+                self.assertEqual(threshold.name, alarm_name + " High Alarm Threshold")
+                self.assertEqual(alarm.name, alarm_name + " High Alarm")
 
     def test_channel_names_fall_back_when_label_is_missing(self):
         # Setup
@@ -136,25 +151,6 @@ class TestDeviceNaming(TestCase):
         self.assertEqual(temperature.name, "Unnamed channel (ch. 1)")
         self.assertEqual(threshold.name, "unnamed channel (Ch. 1) High Alarm Threshold")
         self.assertEqual(alarm.name, "unnamed channel (Ch. 1) High Alarm")
-
-    def test_alarm_names_preserve_cloud_label_capitalization(self):
-        # Setup
-        channel = ThermoworksChannel(
-            number="1", value=100, units="F", status="ok", label="PORK Shoulder"
-        )
-        coordinator = SimpleNamespace()
-
-        # Act
-        threshold = HighAlarmThresholdSensor(
-            "sensor.threshold", coordinator, "RFX123", channel
-        )
-        alarm = HighAlarmBinarySensor(
-            "binary_sensor.alarm", coordinator, "RFX123", channel
-        )
-
-        # Assert
-        self.assertEqual(threshold.name, "PORK Shoulder (Ch. 1) High Alarm Threshold")
-        self.assertEqual(alarm.name, "PORK Shoulder (Ch. 1) High Alarm")
 
     def test_entity_identity_uses_device_id_when_available(self):
         # Setup
