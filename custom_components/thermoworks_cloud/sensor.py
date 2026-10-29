@@ -15,10 +15,11 @@ from homeassistant.util import dt as dt_util
 from homeassistant.helpers.device_registry import format_mac, DeviceInfo
 from homeassistant.helpers.entity import async_generate_entity_id
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.update_coordinator import CoordinatorEntity, UpdateFailed
+from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from .const import DOMAIN
 from .device import entity_device_info, fan_device_info, thermometer_device_info
+from .entity import ThermoworksEntity
 
 from .models import (
     ChannelWithHighAlarm,
@@ -241,7 +242,7 @@ async def async_setup_entry(
         _LOGGER.debug("No new entities created")
 
 
-class BatterySensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
+class BatterySensor(ThermoworksEntity, SensorEntity):
     """Implementation of a sensor."""
 
     # https://developers.home-assistant.io/docs/core/entity/sensor/#available-device-classes
@@ -253,7 +254,6 @@ class BatterySensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
     # Naming
     # https://developers.home-assistant.io/docs/core/entity#entity-naming
     # https://developers.home-assistant.io/docs/internationalization/core/#name-of-entities
-    _attr_has_entity_name = True
     _attr_translation_key = "battery"
 
     # API data is in percent with no decimal place
@@ -270,9 +270,7 @@ class BatterySensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
         device_info: DeviceInfo,
     ) -> None:
         """Initialise sensor."""
-        super().__init__(coordinator)
-        self.entity_id = entity_id
-        self._attr_device_info = device_info
+        super().__init__(entity_id, coordinator, device_info=device_info)
         self._device = device
 
     @callback
@@ -318,11 +316,10 @@ class BatterySensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
         return f"{DOMAIN}-{format_mac(self._device.get_identifier())}"
 
 
-class LastSeenSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
+class LastSeenSensor(ThermoworksEntity, SensorEntity):
     """Implementation of a last seen timestamp sensor."""
 
     _attr_device_class = SensorDeviceClass.TIMESTAMP
-    _attr_has_entity_name = True
     _attr_translation_key = "last_seen"
 
     def __init__(
@@ -333,9 +330,7 @@ class LastSeenSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
         *,
         device_info: DeviceInfo,
     ) -> None:
-        super().__init__(coordinator)
-        self.entity_id = entity_id
-        self._attr_device_info = device_info
+        super().__init__(entity_id, coordinator, device_info=device_info)
         self._device = device
 
     @callback
@@ -369,12 +364,11 @@ class LastSeenSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
         return f"{DOMAIN}-{format_mac(self._device.get_identifier())}-last-seen"
 
 
-class TransmitIntervalSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
+class TransmitIntervalSensor(ThermoworksEntity, SensorEntity):
     """Implementation of a transmit interval sensor."""
 
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = UnitOfTime.SECONDS
-    _attr_has_entity_name = True
     _attr_translation_key = "transmit_interval"
 
     def __init__(
@@ -385,9 +379,7 @@ class TransmitIntervalSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEn
         *,
         device_info: DeviceInfo,
     ) -> None:
-        super().__init__(coordinator)
-        self.entity_id = entity_id
-        self._attr_device_info = device_info
+        super().__init__(entity_id, coordinator, device_info=device_info)
         self._device = device
 
     @callback
@@ -414,14 +406,13 @@ class TransmitIntervalSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEn
         return f"{DOMAIN}-{format_mac(self._device.get_identifier())}-transmit-interval"
 
 
-class ChannelSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
+class ChannelSensor(ThermoworksEntity, SensorEntity):
     """Base class for thermoworks channel sensors."""
 
     _device_channel: ThermoworksChannel
 
     # https://developers.home-assistant.io/docs/core/entity/sensor/#available-state-classes
     _attr_state_class = SensorStateClass.MEASUREMENT
-    _attr_has_entity_name = True
 
     # API data is given at higher precision, but that isn't needed
     # https://developers.home-assistant.io/docs/core/entity/sensor#properties
@@ -438,9 +429,7 @@ class ChannelSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
     ) -> None:
         """Initialize the sensor."""
 
-        super().__init__(coordinator)
-        self.entity_id = entity_id
-        self._attr_device_info = device_info
+        super().__init__(entity_id, coordinator, device_info=device_info)
         self._device_channel = device_channel
         self._device_serial = device_serial
 
@@ -623,10 +612,8 @@ class LowAlarmThresholdSensor(AlarmThresholdSensor):
         return f"{DOMAIN}-{format_mac(self._device_serial)}-{self._device_channel.number}-low-alarm-threshold"
 
 
-class FanSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
+class FanSensor(ThermoworksEntity, SensorEntity):
     """Base class for Thermoworks fan accessory sensors."""
-
-    _attr_has_entity_name = True
 
     def __init__(
         self,
@@ -637,9 +624,7 @@ class FanSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
         device_info: DeviceInfo,
     ) -> None:
         """Initialise sensor."""
-        super().__init__(coordinator)
-        self.entity_id = entity_id
-        self._attr_device_info = device_info
+        super().__init__(entity_id, coordinator, device_info=device_info)
         self._device = device
 
     @callback
@@ -726,7 +711,7 @@ class FanSetTemperatureSensor(FanSensor):
         return f"{DOMAIN}-{format_mac(self._device.get_identifier())}-fan-set-temperature"
 
 
-class SignalSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
+class SignalSensor(ThermoworksEntity, SensorEntity):
     """Implementation of a sensor."""
 
     # https://developers.home-assistant.io/docs/core/entity/sensor/#available-device-classes
@@ -738,7 +723,6 @@ class SignalSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
     # Naming
     # https://developers.home-assistant.io/docs/core/entity#entity-naming
     # https://developers.home-assistant.io/docs/internationalization/core/#name-of-entities
-    _attr_has_entity_name = True
     _attr_translation_key = "signal"
 
     # API data is in negative decibels with no decimal place
@@ -755,9 +739,7 @@ class SignalSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
         device_info: DeviceInfo,
     ) -> None:
         """Initialise sensor."""
-        super().__init__(coordinator)
-        self.entity_id = entity_id
-        self._attr_device_info = device_info
+        super().__init__(entity_id, coordinator, device_info=device_info)
         self._device = device
 
     @callback

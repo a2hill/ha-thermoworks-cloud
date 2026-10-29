@@ -10,10 +10,11 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo, format_mac
 from homeassistant.helpers.entity import async_generate_entity_id
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.update_coordinator import CoordinatorEntity, UpdateFailed
+from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from .const import DOMAIN
 from .device import entity_device_info, fan_device_info, thermometer_device_info
+from .entity import ThermoworksEntity
 from .coordinator import ThermoworksCoordinator
 from .models import (
     ChannelWithHighAlarm,
@@ -87,11 +88,10 @@ async def async_setup_entry(
     async_add_entities(new_entities)
 
 
-class FanConnectedSensor(CoordinatorEntity[ThermoworksCoordinator], BinarySensorEntity):
+class FanConnectedSensor(ThermoworksEntity, BinarySensorEntity):
     """Implementation of a Thermoworks fan connection sensor."""
 
     _attr_device_class = BinarySensorDeviceClass.CONNECTIVITY
-    _attr_has_entity_name = True
     _attr_translation_key = "fan_connected"
 
     def __init__(
@@ -103,9 +103,7 @@ class FanConnectedSensor(CoordinatorEntity[ThermoworksCoordinator], BinarySensor
         device_info: DeviceInfo,
     ) -> None:
         """Initialise sensor."""
-        super().__init__(coordinator)
-        self.entity_id = entity_id
-        self._attr_device_info = device_info
+        super().__init__(entity_id, coordinator, device_info=device_info)
         self._device = device
 
     @callback
@@ -135,13 +133,10 @@ class FanConnectedSensor(CoordinatorEntity[ThermoworksCoordinator], BinarySensor
         return f"{DOMAIN}-{format_mac(self._device.get_identifier())}-fan-connected"
 
 
-class AlarmBinarySensor(
-    CoordinatorEntity[ThermoworksCoordinator], BinarySensorEntity
-):
+class AlarmBinarySensor(ThermoworksEntity, BinarySensorEntity):
     """Base class for Thermoworks channel alarm binary sensors."""
 
     _attr_device_class = BinarySensorDeviceClass.PROBLEM
-    _attr_has_entity_name = True
 
     def __init__(
         self,
@@ -153,9 +148,7 @@ class AlarmBinarySensor(
         device_info: DeviceInfo,
     ) -> None:
         """Initialise sensor."""
-        super().__init__(coordinator)
-        self.entity_id = entity_id
-        self._attr_device_info = device_info
+        super().__init__(entity_id, coordinator, device_info=device_info)
         self._device_serial = device_serial
         self._device_channel = device_channel
 
