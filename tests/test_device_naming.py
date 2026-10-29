@@ -1,4 +1,4 @@
-"""Naming and identity contracts exposed by our entities to Home Assistant."""
+"""Naming and identity contracts exposed to Home Assistant."""
 
 from types import SimpleNamespace
 from unittest import TestCase
@@ -6,6 +6,12 @@ from unittest import TestCase
 from thermoworks_cloud.models import Fan
 
 from custom_components.thermoworks_cloud.binary_sensor import HighAlarmBinarySensor
+from custom_components.thermoworks_cloud.device import (
+    device_reference,
+    entity_device_info,
+    fan_device_info,
+    thermometer_device_info,
+)
 from custom_components.thermoworks_cloud.models import (
     ThermoworksChannel,
     ThermoworksDevice,
@@ -25,15 +31,14 @@ class TestDeviceNaming(TestCase):
         device = ThermoworksDevice(
             serial="RFX123", label="Patio BBQ", fan=Fan(connected=True)
         )
-        coordinator = SimpleNamespace()
 
         # Act
-        battery = BatterySensor("sensor.battery", coordinator, device)
-        fan = FanStateSensor("sensor.fan", coordinator, device)
+        thermometer_info = thermometer_device_info(device)
+        fan_info = fan_device_info(device)
 
         # Assert
-        self.assertEqual(battery.device_info["name"], "Patio BBQ")
-        self.assertEqual(fan.device_info["name"], "Patio BBQ Fan")
+        self.assertEqual(thermometer_info["name"], "Patio BBQ")
+        self.assertEqual(fan_info["name"], "Patio BBQ Fan")
 
     def test_fan_name_falls_back_for_missing_or_empty_cloud_label(self):
         # Setup
@@ -49,23 +54,18 @@ class TestDeviceNaming(TestCase):
             device_name="RFX Gateway",
             fan=Fan(connected=True),
         )
-        coordinator = SimpleNamespace()
 
         # Act
-        missing_label_fan = FanStateSensor(
-            "sensor.missing_label_fan", coordinator, missing_label_device
-        )
-        empty_label_fan = FanStateSensor(
-            "sensor.empty_label_fan", coordinator, empty_label_device
-        )
+        missing_label_fan_info = fan_device_info(missing_label_device)
+        empty_label_fan_info = fan_device_info(empty_label_device)
 
         # Assert
         self.assertEqual(
-            missing_label_fan.device_info["name"],
+            missing_label_fan_info["name"],
             "unnamed device (RFX Gateway - RFX123) Fan",
         )
         self.assertEqual(
-            empty_label_fan.device_info["name"],
+            empty_label_fan_info["name"],
             "unnamed device (RFX Gateway - RFX123) Fan",
         )
 
@@ -84,16 +84,32 @@ class TestDeviceNaming(TestCase):
 
         # Act
         temperature = TemperatureSensor(
-            "sensor.temperature", coordinator, "RFX123", temperature_channel
+            "sensor.temperature",
+            coordinator,
+            "RFX123",
+            temperature_channel,
+            device_info=device_reference("RFX123"),
         )
         humidity = HumiditySensor(
-            "sensor.humidity", coordinator, "RFX123", humidity_channel
+            "sensor.humidity",
+            coordinator,
+            "RFX123",
+            humidity_channel,
+            device_info=device_reference("RFX123"),
         )
         threshold = HighAlarmThresholdSensor(
-            "sensor.threshold", coordinator, "RFX123", alarm_channel
+            "sensor.threshold",
+            coordinator,
+            "RFX123",
+            alarm_channel,
+            device_info=device_reference("RFX123"),
         )
         alarm = HighAlarmBinarySensor(
-            "binary_sensor.alarm", coordinator, "RFX123", alarm_channel
+            "binary_sensor.alarm",
+            coordinator,
+            "RFX123",
+            alarm_channel,
+            device_info=device_reference("RFX123"),
         )
 
         # Assert
@@ -118,30 +134,42 @@ class TestDeviceNaming(TestCase):
             coordinator,
             "RFX123",
             missing_label_channel,
+            device_info=device_reference("RFX123"),
         )
         empty_label_temperature = TemperatureSensor(
-            "sensor.empty_label_temperature", coordinator, "RFX123", empty_label_channel
+            "sensor.empty_label_temperature",
+            coordinator,
+            "RFX123",
+            empty_label_channel,
+            device_info=device_reference("RFX123"),
         )
         missing_label_threshold = HighAlarmThresholdSensor(
             "sensor.missing_label_threshold",
             coordinator,
             "RFX123",
             missing_label_channel,
+            device_info=device_reference("RFX123"),
         )
         empty_label_threshold = HighAlarmThresholdSensor(
-            "sensor.empty_label_threshold", coordinator, "RFX123", empty_label_channel
+            "sensor.empty_label_threshold",
+            coordinator,
+            "RFX123",
+            empty_label_channel,
+            device_info=device_reference("RFX123"),
         )
         missing_label_alarm = HighAlarmBinarySensor(
             "binary_sensor.missing_label_alarm",
             coordinator,
             "RFX123",
             missing_label_channel,
+            device_info=device_reference("RFX123"),
         )
         empty_label_alarm = HighAlarmBinarySensor(
             "binary_sensor.empty_label_alarm",
             coordinator,
             "RFX123",
             empty_label_channel,
+            device_info=device_reference("RFX123"),
         )
 
         # Assert
@@ -167,11 +195,25 @@ class TestDeviceNaming(TestCase):
         coordinator = SimpleNamespace()
 
         # Act
-        battery = BatterySensor("sensor.battery", coordinator, device)
-        temperature = TemperatureSensor(
-            "sensor.temperature", coordinator, device.get_identifier(), channel
+        battery = BatterySensor(
+            "sensor.battery",
+            coordinator,
+            device,
+            device_info=entity_device_info(thermometer_device_info(device)),
         )
-        fan = FanStateSensor("sensor.fan", coordinator, device)
+        temperature = TemperatureSensor(
+            "sensor.temperature",
+            coordinator,
+            device.get_identifier(),
+            channel,
+            device_info=device_reference(device.get_identifier()),
+        )
+        fan = FanStateSensor(
+            "sensor.fan",
+            coordinator,
+            device,
+            device_info=entity_device_info(fan_device_info(device)),
+        )
 
         # Assert
         self.assertEqual(
@@ -200,11 +242,25 @@ class TestDeviceNaming(TestCase):
         coordinator = SimpleNamespace()
 
         # Act
-        battery = BatterySensor("sensor.battery", coordinator, device)
-        temperature = TemperatureSensor(
-            "sensor.temperature", coordinator, device.get_identifier(), channel
+        battery = BatterySensor(
+            "sensor.battery",
+            coordinator,
+            device,
+            device_info=entity_device_info(thermometer_device_info(device)),
         )
-        fan = FanStateSensor("sensor.fan", coordinator, device)
+        temperature = TemperatureSensor(
+            "sensor.temperature",
+            coordinator,
+            device.get_identifier(),
+            channel,
+            device_info=device_reference(device.get_identifier()),
+        )
+        fan = FanStateSensor(
+            "sensor.fan",
+            coordinator,
+            device,
+            device_info=entity_device_info(fan_device_info(device)),
+        )
 
         # Assert
         self.assertEqual(

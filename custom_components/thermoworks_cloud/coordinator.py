@@ -18,6 +18,7 @@ from .const import (
     DOMAIN,
     PROVIDER_THERMOWORKS,
 )
+from .device import async_register_devices
 from .exceptions import MissingRequiredAttributeError
 from .models import ThermoworksDevice, ThermoworksChannel
 
@@ -74,6 +75,7 @@ class ThermoworksCoordinator(DataUpdateCoordinator[ThermoworksData]):
             referer=provider_config["referer"],
         )
         self.api = None
+        self._config_entry = config_entry
 
     async def async_update_data(self) -> ThermoworksData:
         """Fetch data from API endpoint.
@@ -158,6 +160,8 @@ class ThermoworksCoordinator(DataUpdateCoordinator[ThermoworksData]):
         except Exception as err:
             # This will show entities as unavailable by raising UpdateFailed exception
             raise UpdateFailed(f"Error communicating with API: {err}") from err
+
+        async_register_devices(self.hass, self._config_entry, devices)
 
         _LOGGER.debug(
             "Update completed: %d devices with data retrieved", len(devices))

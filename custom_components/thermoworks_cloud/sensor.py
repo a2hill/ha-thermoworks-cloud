@@ -18,6 +18,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity, UpdateFailed
 
 from .const import DOMAIN
+from .device import entity_device_info, fan_device_info, thermometer_device_info
 
 from .models import (
     ChannelWithHighAlarm,
@@ -49,6 +50,7 @@ async def async_setup_entry(
 
     new_entities = []
     for device in coordinator.data.devices:
+        parent_device_info = entity_device_info(thermometer_device_info(device))
 
         # Only create battery sensor if the device has battery capability
         if DeviceWithBattery.is_protocol_compliant(device):
@@ -61,6 +63,7 @@ async def async_setup_entry(
                     ),
                     coordinator=coordinator,
                     device=device,
+                    device_info=parent_device_info,
                 )
             )
         else:
@@ -81,6 +84,7 @@ async def async_setup_entry(
                     ),
                     coordinator=coordinator,
                     device=device,
+                    device_info=parent_device_info,
                 )
             )
         else:
@@ -100,6 +104,7 @@ async def async_setup_entry(
                     ),
                     coordinator=coordinator,
                     device=device,
+                    device_info=parent_device_info,
                 )
             )
         else:
@@ -119,6 +124,7 @@ async def async_setup_entry(
                     ),
                     coordinator=coordinator,
                     device=device,
+                    device_info=parent_device_info,
                 )
             )
         else:
@@ -129,6 +135,7 @@ async def async_setup_entry(
             )
 
         if DeviceWithFan.is_protocol_compliant(device):
+            accessory_device_info = entity_device_info(fan_device_info(device))
             new_entities.extend(
                 [
                     FanStateSensor(
@@ -139,6 +146,7 @@ async def async_setup_entry(
                         ),
                         coordinator=coordinator,
                         device=device,
+                        device_info=accessory_device_info,
                     ),
                     FanSetTemperatureSensor(
                         entity_id=async_generate_entity_id(
@@ -148,6 +156,7 @@ async def async_setup_entry(
                         ),
                         coordinator=coordinator,
                         device=device,
+                        device_info=accessory_device_info,
                     ),
                 ]
             )
@@ -170,6 +179,7 @@ async def async_setup_entry(
                         coordinator=coordinator,
                         device_serial=device.get_identifier(),
                         device_channel=device_channel,
+                        device_info=parent_device_info,
                     )
                 )
             elif device_channel.units in ("F", "C"):
@@ -183,6 +193,7 @@ async def async_setup_entry(
                         coordinator=coordinator,
                         device_serial=device.get_identifier(),
                         device_channel=device_channel,
+                        device_info=parent_device_info,
                     )
                 )
             else:
@@ -204,6 +215,7 @@ async def async_setup_entry(
                         coordinator=coordinator,
                         device_serial=device.get_identifier(),
                         device_channel=device_channel,
+                        device_info=parent_device_info,
                     )
                 )
 
@@ -218,6 +230,7 @@ async def async_setup_entry(
                         coordinator=coordinator,
                         device_serial=device.get_identifier(),
                         device_channel=device_channel,
+                        device_info=parent_device_info,
                     )
                 )
 
@@ -253,10 +266,13 @@ class BatterySensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
         entity_id: str,
         coordinator: ThermoworksCoordinator,
         device: DeviceWithBattery,
+        *,
+        device_info: DeviceInfo,
     ) -> None:
         """Initialise sensor."""
         super().__init__(coordinator)
         self.entity_id = entity_id
+        self._attr_device_info = device_info
         self._device = device
 
     @callback
@@ -274,26 +290,6 @@ class BatterySensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
                 f"attribute(s): {get_missing_attributes(device, DeviceWithBattery)}")
         self._device = device
         self.async_write_ha_state()
-
-    @property
-    def device_info(self) -> DeviceInfo:
-        """Return device information."""
-        # Identifiers are what group entities into the same device.
-        # If your device is created elsewhere, you can just specify the indentifiers parameter.
-        # If your device connects via another device, add via_device parameter with the indentifiers of that device.
-        return DeviceInfo(
-            identifiers={
-                (
-                    DOMAIN,
-                    f"{format_mac(self._device.get_identifier())}",
-                )
-            },
-            name=self._device.label,
-            sw_version=self._device.firmware,
-            manufacturer="ThermoWorks",
-            model=self._device.device_name,
-            serial_number=self._device.serial,
-        )
 
     @property
     def icon(self) -> str | None:
@@ -334,9 +330,12 @@ class LastSeenSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
         entity_id: str,
         coordinator: ThermoworksCoordinator,
         device: DeviceWithLastSeen,
+        *,
+        device_info: DeviceInfo,
     ) -> None:
         super().__init__(coordinator)
         self.entity_id = entity_id
+        self._attr_device_info = device_info
         self._device = device
 
     @callback
@@ -353,17 +352,6 @@ class LastSeenSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
             )
         self._device = device
         self.async_write_ha_state()
-
-    @property
-    def device_info(self) -> DeviceInfo:
-        return DeviceInfo(
-            identifiers={
-                (
-                    DOMAIN,
-                    f"{format_mac(self._device.get_identifier())}",
-                )
-            }
-        )
 
     @property
     def native_value(self) -> str | None:
@@ -394,9 +382,12 @@ class TransmitIntervalSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEn
         entity_id: str,
         coordinator: ThermoworksCoordinator,
         device: DeviceWithTransmitInterval,
+        *,
+        device_info: DeviceInfo,
     ) -> None:
         super().__init__(coordinator)
         self.entity_id = entity_id
+        self._attr_device_info = device_info
         self._device = device
 
     @callback
@@ -413,17 +404,6 @@ class TransmitIntervalSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEn
             )
         self._device = device
         self.async_write_ha_state()
-
-    @property
-    def device_info(self) -> DeviceInfo:
-        return DeviceInfo(
-            identifiers={
-                (
-                    DOMAIN,
-                    f"{format_mac(self._device.get_identifier())}",
-                )
-            }
-        )
 
     @property
     def native_value(self) -> int | None:
@@ -453,11 +433,14 @@ class ChannelSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
         coordinator: ThermoworksCoordinator,
         device_serial: str,
         device_channel: ThermoworksChannel,
+        *,
+        device_info: DeviceInfo,
     ) -> None:
         """Initialize the sensor."""
 
         super().__init__(coordinator)
         self.entity_id = entity_id
+        self._attr_device_info = device_info
         self._device_channel = device_channel
         self._device_serial = device_serial
 
@@ -474,21 +457,6 @@ class ChannelSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
                 "is not found")
         self._device_channel = device_channel
         self.async_write_ha_state()
-
-    @property
-    def device_info(self) -> DeviceInfo:
-        """Return device information."""
-        # Identifiers are what group entities into the same device.
-        # If your device is created elsewhere, you can just specify the indentifiers parameter.
-        # If your device connects via another device, add via_device parameter with the indentifiers of that device.
-        return DeviceInfo(
-            identifiers={
-                (
-                    DOMAIN,
-                    f"{format_mac(self._device_serial)}",
-                )
-            }
-        )
 
     @property
     def name(self) -> str:
@@ -508,7 +476,6 @@ class ChannelSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
         # Using native value and native unit of measurement, allows you to change units
         # in Lovelace and HA will automatically calculate the correct value.
         return float(self._device_channel.value)
-
 
     @property
     def unique_id(self) -> str:
@@ -666,10 +633,13 @@ class FanSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
         entity_id: str,
         coordinator: ThermoworksCoordinator,
         device: DeviceWithFan,
+        *,
+        device_info: DeviceInfo,
     ) -> None:
         """Initialise sensor."""
         super().__init__(coordinator)
         self.entity_id = entity_id
+        self._attr_device_info = device_info
         self._device = device
 
     @callback
@@ -687,17 +657,6 @@ class FanSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
             )
         self._device = device
         self.async_write_ha_state()
-
-    @property
-    def device_info(self) -> DeviceInfo:
-        """Return fan device information."""
-        gateway_identifier = format_mac(self._device.get_identifier())
-        return DeviceInfo(
-            identifiers={(DOMAIN, f"{gateway_identifier}-fan")},
-            name=f"{self._device.label or self._device.display_name()} Fan",
-            manufacturer="ThermoWorks",
-            via_device=(DOMAIN, gateway_identifier),
-        )
 
     @property
     def available(self) -> bool:
@@ -792,10 +751,13 @@ class SignalSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
         entity_id: str,
         coordinator: ThermoworksCoordinator,
         device: DeviceWithSignalStrength,
+        *,
+        device_info: DeviceInfo,
     ) -> None:
         """Initialise sensor."""
         super().__init__(coordinator)
         self.entity_id = entity_id
+        self._attr_device_info = device_info
         self._device = device
 
     @callback
@@ -813,21 +775,6 @@ class SignalSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
                 f"attribute(s): {get_missing_attributes(device, DeviceWithSignalStrength)}")
         self._device = device
         self.async_write_ha_state()
-
-    @property
-    def device_info(self) -> DeviceInfo:
-        """Return device information."""
-        # Identifiers are what group entities into the same device.
-        # If your device is created elsewhere, you can just specify the indentifiers parameter.
-        # If your device connects via another device, add via_device parameter with the indentifiers of that device.
-        return DeviceInfo(
-            identifiers={
-                (
-                    DOMAIN,
-                    f"{format_mac(self._device.get_identifier())}",
-                )
-            }
-        )
 
     @property
     def native_value(self) -> int | float:
