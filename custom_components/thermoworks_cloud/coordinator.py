@@ -18,7 +18,7 @@ from .const import (
     DOMAIN,
     PROVIDER_THERMOWORKS,
 )
-from .device import async_register_devices
+from .device import async_register_devices, get_identifier_for_device
 from .exceptions import MissingRequiredAttributeError
 from .models import ThermoworksDevice, ThermoworksChannel
 
@@ -31,7 +31,7 @@ class ThermoworksData:
 
     # List of devices retreived for the user
     devices: list[ThermoworksDevice]
-    # Map of DeviceChannel's indexed by device id
+    # Channels indexed by the formatted parent device identifier.
     device_channels: dict[str, list[ThermoworksChannel]]
 
 
@@ -153,7 +153,7 @@ class ThermoworksCoordinator(DataUpdateCoordinator[ThermoworksData]):
                         # Continue with next channel
                         continue
 
-                device_channels_by_device[device.get_identifier()] = device_channels
+                device_channels_by_device[get_identifier_for_device(device)] = device_channels
                 _LOGGER.debug("Found %d channels for device %s",
                               len(device_channels), device.display_name())
 
@@ -183,7 +183,7 @@ class ThermoworksCoordinator(DataUpdateCoordinator[ThermoworksData]):
     def get_device_channel_by_id(
         self, device_id: str, channel_id: str
     ) -> ThermoworksChannel | None:
-        """Return device channel by device id and channel id."""
+        """Return a channel by its formatted parent device identifier and channel id."""
         # Called by the temperature sensors to get their updated data from self.data
 
         for device_channel in self.data.device_channels.get(device_id, []):

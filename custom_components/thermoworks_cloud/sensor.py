@@ -29,7 +29,6 @@ from .models import (
     DeviceWithSignalStrength,
     DeviceWithTransmitInterval,
     ThermoworksChannel,
-    ThermoworksDevice,
     get_missing_attributes,
 )
 
@@ -167,7 +166,7 @@ async def async_setup_entry(
                 get_missing_attributes(device, DeviceWithFan)
             )
 
-        for device_channel in coordinator.data.device_channels.get(device.get_identifier(), []):
+        for device_channel in coordinator.data.device_channels.get(parent_identifier, []):
             if device_channel.units == "H":
                 new_entities.append(
                     HumiditySensor(
@@ -177,7 +176,6 @@ async def async_setup_entry(
                             hass=hass,
                         ),
                         coordinator=coordinator,
-                        device=device,
                         device_channel=device_channel,
                         identifier=parent_identifier,
                     )
@@ -191,7 +189,6 @@ async def async_setup_entry(
                             hass=hass,
                         ),
                         coordinator=coordinator,
-                        device=device,
                         device_channel=device_channel,
                         identifier=parent_identifier,
                     )
@@ -213,7 +210,6 @@ async def async_setup_entry(
                             hass=hass,
                         ),
                         coordinator=coordinator,
-                        device=device,
                         device_channel=device_channel,
                         identifier=parent_identifier,
                     )
@@ -228,7 +224,6 @@ async def async_setup_entry(
                             hass=hass,
                         ),
                         coordinator=coordinator,
-                        device=device,
                         device_channel=device_channel,
                         identifier=parent_identifier,
                     )
@@ -421,7 +416,6 @@ class ChannelSensor(ThermoworksEntity, SensorEntity):
         self,
         entity_id: str,
         coordinator: ThermoworksCoordinator,
-        device: ThermoworksDevice,
         device_channel: ThermoworksChannel,
         *,
         identifier: str,
@@ -430,14 +424,13 @@ class ChannelSensor(ThermoworksEntity, SensorEntity):
 
         super().__init__(entity_id, coordinator, identifier=identifier)
         self._device_channel = device_channel
-        self._device = device
 
     @callback
     def _handle_coordinator_update(self) -> None:
         """Update sensor with latest data from coordinator."""
         # This method is called by your DataUpdateCoordinator when a successful update runs.
         device_channel = self.coordinator.get_device_channel_by_id(
-            device_id=self._device.get_identifier(), channel_id=self._device_channel.number
+            device_id=self._device_identifier, channel_id=self._device_channel.number
         )
         if not device_channel:
             raise UpdateFailed(

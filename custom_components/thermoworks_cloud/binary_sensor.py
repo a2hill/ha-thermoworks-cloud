@@ -20,7 +20,6 @@ from .models import (
     ChannelWithLowAlarm,
     DeviceWithFan,
     ThermoworksChannel,
-    ThermoworksDevice,
     get_missing_attributes,
 )
 
@@ -53,7 +52,7 @@ async def async_setup_entry(
     for device in coordinator.data.devices:
         parent_identifier = get_identifier_for_device(device)
         for device_channel in coordinator.data.device_channels.get(
-            device.get_identifier(), []
+            parent_identifier, []
         ):
             if ChannelWithHighAlarm.is_protocol_compliant(device_channel):
                 new_entities.append(
@@ -64,7 +63,6 @@ async def async_setup_entry(
                             hass=hass,
                         ),
                         coordinator=coordinator,
-                        device=device,
                         device_channel=device_channel,
                         identifier=parent_identifier,
                     )
@@ -79,7 +77,6 @@ async def async_setup_entry(
                             hass=hass,
                         ),
                         coordinator=coordinator,
-                        device=device,
                         device_channel=device_channel,
                         identifier=parent_identifier,
                     )
@@ -142,21 +139,19 @@ class AlarmBinarySensor(ThermoworksEntity, BinarySensorEntity):
         self,
         entity_id: str,
         coordinator: ThermoworksCoordinator,
-        device: ThermoworksDevice,
         device_channel: ThermoworksChannel,
         *,
         identifier: str,
     ) -> None:
         """Initialise sensor."""
         super().__init__(entity_id, coordinator, identifier=identifier)
-        self._device = device
         self._device_channel = device_channel
 
     @callback
     def _handle_coordinator_update(self) -> None:
         """Update sensor with latest data from coordinator."""
         device_channel = self.coordinator.get_device_channel_by_id(
-            device_id=self._device.get_identifier(), channel_id=self._device_channel.number
+            device_id=self._device_identifier, channel_id=self._device_channel.number
         )
         if not device_channel:
             raise UpdateFailed(

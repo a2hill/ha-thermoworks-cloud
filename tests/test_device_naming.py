@@ -86,28 +86,24 @@ class TestDeviceNaming(TestCase):
         temperature = TemperatureSensor(
             "sensor.temperature",
             coordinator,
-            device,
             temperature_channel,
             identifier=get_identifier_for_device(device),
         )
         humidity = HumiditySensor(
             "sensor.humidity",
             coordinator,
-            device,
             humidity_channel,
             identifier=get_identifier_for_device(device),
         )
         threshold = HighAlarmThresholdSensor(
             "sensor.threshold",
             coordinator,
-            device,
             alarm_channel,
             identifier=get_identifier_for_device(device),
         )
         alarm = HighAlarmBinarySensor(
             "binary_sensor.alarm",
             coordinator,
-            device,
             alarm_channel,
             identifier=get_identifier_for_device(device),
         )
@@ -133,42 +129,36 @@ class TestDeviceNaming(TestCase):
         missing_label_temperature = TemperatureSensor(
             "sensor.missing_label_temperature",
             coordinator,
-            device,
             missing_label_channel,
             identifier=get_identifier_for_device(device),
         )
         empty_label_temperature = TemperatureSensor(
             "sensor.empty_label_temperature",
             coordinator,
-            device,
             empty_label_channel,
             identifier=get_identifier_for_device(device),
         )
         missing_label_threshold = HighAlarmThresholdSensor(
             "sensor.missing_label_threshold",
             coordinator,
-            device,
             missing_label_channel,
             identifier=get_identifier_for_device(device),
         )
         empty_label_threshold = HighAlarmThresholdSensor(
             "sensor.empty_label_threshold",
             coordinator,
-            device,
             empty_label_channel,
             identifier=get_identifier_for_device(device),
         )
         missing_label_alarm = HighAlarmBinarySensor(
             "binary_sensor.missing_label_alarm",
             coordinator,
-            device,
             missing_label_channel,
             identifier=get_identifier_for_device(device),
         )
         empty_label_alarm = HighAlarmBinarySensor(
             "binary_sensor.empty_label_alarm",
             coordinator,
-            device,
             empty_label_channel,
             identifier=get_identifier_for_device(device),
         )
@@ -205,7 +195,6 @@ class TestDeviceNaming(TestCase):
         temperature = TemperatureSensor(
             "sensor.temperature",
             coordinator,
-            device,
             channel,
             identifier=get_identifier_for_device(device),
         )
@@ -252,7 +241,6 @@ class TestDeviceNaming(TestCase):
         temperature = TemperatureSensor(
             "sensor.temperature",
             coordinator,
-            device,
             channel,
             identifier=get_identifier_for_device(device),
         )
