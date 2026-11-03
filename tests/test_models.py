@@ -62,6 +62,7 @@ def test_from_api_device_preserves_fan() -> None:
         firmware="1.2.3",
         serial="RFX123",
         battery=82,
+        battery_state="charging",
         wifi_strength=None,
         signal_strength=-67,
         fan=fan,
@@ -74,6 +75,7 @@ def test_from_api_device_preserves_fan() -> None:
     assert device.fan == fan
     assert device.fan.state_name == "Blowing"
     assert device.device_display_units == "F"
+    assert device.battery_state == "charging"
     assert DeviceWithFan.is_protocol_compliant(device)
 
 

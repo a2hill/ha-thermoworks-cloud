@@ -8,6 +8,13 @@
           "cloud_provider": "Cloud Provider"
         }
       },
+      "api_key": {
+        "title": "ThermoWorks API Key",
+        "description": "Create a read:devices API key in your ThermoWorks Cloud account's Integrations tab. Use a key for the same account as your existing devices when migrating. Your ThermoWorks password is not used.",
+        "data": {
+          "api_key": "API key"
+        }
+      },
       "credentials": {
         "title": "Account Credentials",
         "data": {
@@ -19,10 +26,14 @@
     "error": {
       "cannot_connect": "Failed to connect",
       "invalid_auth": "Invalid authentication",
-      "unknown": "Unexpected error"
+      "unknown": "Unexpected error",
+      "rate_limited": "The API rate limit was reached. Wait before trying again."
     },
     "abort": {
-      "already_configured": "Account is already configured"
+      "already_configured": "Account is already configured",
+      "wrong_account": "These credentials belong to a different account.",
+      "reauth_successful": "Authentication updated successfully",
+      "reauth_entry_missing": "The integration entry no longer exists."
     }
   },
   "options": {

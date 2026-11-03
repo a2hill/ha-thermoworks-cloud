@@ -80,6 +80,7 @@ class ThermoworksDevice(BaseDevice):
             firmware=device.firmware,
             serial=device.serial,
             battery=device.battery,
+            battery_state=getattr(device, "battery_state", None),
             wifi_strength=device.wifi_strength,
             signal_strength=device.signal_strength,
             fan=getattr(device, "fan", None),
@@ -152,12 +153,15 @@ class ThermoworksChannel:
     """Represents a Thermoworks device channel with required properties for this integration."""
 
     number: str
-    value: float
-    units: str
+    value: Optional[float]
+    units: Optional[str]
     status: Optional[str]
     label: Optional[str]
     alarm_high: Optional[Alarm] = None
     alarm_low: Optional[Alarm] = None
+    last_telemetry_saved: Optional[datetime] = None
+    enabled: bool = True
+    probe_failed: bool = False
 
     @classmethod
     def is_thermoworks_channel(cls, obj: Any) -> TypeGuard["ThermoworksChannel"]:
@@ -167,9 +171,9 @@ class ThermoworksChannel:
     @classmethod
     def from_api_channel(cls, channel: DeviceChannel) -> "ThermoworksChannel":
         """Create a ThermoworksChannel from the API channel object."""
-        if not ThermoworksChannel.is_thermoworks_channel(channel):
+        if channel.number is None:
             raise MissingRequiredAttributeError(
-                get_missing_attributes(channel, ThermoworksChannel), ThermoworksChannel)
+                ["number"], ThermoworksChannel)
 
         # All required attributes exist, create the object
         return cls(

@@ -10,7 +10,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo, format_mac
 from homeassistant.helpers.entity import async_generate_entity_id
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.update_coordinator import CoordinatorEntity, UpdateFailed
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
 from .coordinator import ThermoworksCoordinator
@@ -19,7 +19,6 @@ from .models import (
     ChannelWithLowAlarm,
     DeviceWithFan,
     ThermoworksChannel,
-    get_missing_attributes,
 )
 
 
@@ -104,16 +103,8 @@ class FanConnectedSensor(CoordinatorEntity[ThermoworksCoordinator], BinarySensor
     def _handle_coordinator_update(self) -> None:
         """Update sensor with latest data from coordinator."""
         device = self.coordinator.get_device_by_id(self._device.get_identifier())
-        if not device:
-            raise UpdateFailed(
-                f"Cannot update sensor {self.name}: device {self._device.display_name()} is not found"
-            )
-        if not DeviceWithFan.is_protocol_compliant(device):
-            raise UpdateFailed(
-                f"Cannot update sensor {self.name}: device {self._device.display_name()} is missing required "
-                f"attribute(s): {get_missing_attributes(device, DeviceWithFan)}"
-            )
-        self._device = device
+        if device is not None and device.fan is not None:
+            self._device = device
         self.async_write_ha_state()
 
     @property
@@ -131,6 +122,16 @@ class FanConnectedSensor(CoordinatorEntity[ThermoworksCoordinator], BinarySensor
     def is_on(self) -> bool | None:
         """Return true if the fan accessory is connected."""
         return self._device.fan.connected
+
+    @property
+    def available(self) -> bool:
+        """Return false if the device no longer reports fan data."""
+        current = self.coordinator.get_device_by_id(self._device.get_identifier())
+        return (
+            super().available
+            and current is not None
+            and current.fan is not None
+        )
 
     @property
     def unique_id(self) -> str:
@@ -165,12 +166,8 @@ class AlarmBinarySensor(
         device_channel = self.coordinator.get_device_channel_by_id(
             device_id=self._device_serial, channel_id=self._device_channel.number
         )
-        if not device_channel:
-            raise UpdateFailed(
-                f"Cannot update sensor {self.name}: device channel {self._device_channel.display_name()} "
-                "is not found"
-            )
-        self._device_channel = device_channel
+        if device_channel is not None:
+            self._device_channel = device_channel
         self.async_write_ha_state()
 
     @property
@@ -200,6 +197,19 @@ class AlarmBinarySensor(
         if self._alarm is None:
             return None
         return self._alarm.enabled is True and self._alarm.alarming is True
+
+    @property
+    def available(self) -> bool:
+        """Do not retain a healthy alarm state for a missing or failed probe."""
+        channel = self.coordinator.get_device_channel_by_id(
+            self._device_serial, self._device_channel.number
+        )
+        return (
+            super().available
+            and channel is not None
+            and channel.enabled
+            and not channel.probe_failed
+        )
 
 
 class HighAlarmBinarySensor(AlarmBinarySensor):

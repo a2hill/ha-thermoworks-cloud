@@ -1,22 +1,26 @@
 """Coordinates data updates from the Thermoworks Cloud API."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import timedelta
 import logging
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_EMAIL, CONF_PASSWORD, CONF_SCAN_INTERVAL
+from homeassistant.const import CONF_API_KEY, CONF_EMAIL, CONF_PASSWORD, CONF_SCAN_INTERVAL
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
-from thermoworks_cloud import AuthFactory, ThermoworksCloud, ResourceNotFoundError
+from thermoworks_cloud import AuthenticationError, AuthFactory, ThermoworksCloud, ResourceNotFoundError
 
+from .api import ApiAuthError, ApiError, IntegrationsApi, parse_snapshot
 from .const import (
     CLOUD_PROVIDERS,
     CONF_CLOUD_PROVIDER,
     DEFAULT_SCAN_INTERVAL_SECONDS,
     DOMAIN,
     PROVIDER_THERMOWORKS,
+    minimum_scan_interval,
 )
 from .exceptions import MissingRequiredAttributeError
 from .models import ThermoworksDevice, ThermoworksChannel
@@ -45,12 +49,23 @@ class ThermoworksCoordinator(DataUpdateCoordinator[ThermoworksData]):
         """Initialize coordinator."""
 
         # Set variables from values entered in config flow setup
-        self.email = config_entry.data[CONF_EMAIL]
-        self.password = config_entry.data[CONF_PASSWORD]
+        self.email = config_entry.data.get(CONF_EMAIL)
+        self.password = config_entry.data.get(CONF_PASSWORD)
+        self.provider = config_entry.data.get(CONF_CLOUD_PROVIDER, PROVIDER_THERMOWORKS)
+        self.integrations_api: IntegrationsApi | None = None
+        self._registered_identifiers = {
+            identifier
+            for device in dr.async_entries_for_config_entry(
+                dr.async_get(hass), config_entry.entry_id
+            )
+            for domain, identifier in device.identifiers
+            if domain == DOMAIN
+        }
 
         # set variables from options.  You need a default here incase options have not been set
-        self.poll_interval = config_entry.options.get(
-            CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL_SECONDS
+        self.poll_interval = max(
+            minimum_scan_interval(config_entry.data),
+            config_entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL_SECONDS),
         )
 
         # Initialise DataUpdateCoordinator
@@ -65,15 +80,18 @@ class ThermoworksCoordinator(DataUpdateCoordinator[ThermoworksData]):
             update_interval=timedelta(seconds=self.poll_interval),
         )
         client_session = async_get_clientsession(hass)
-        provider = config_entry.data.get(CONF_CLOUD_PROVIDER, PROVIDER_THERMOWORKS)
-        provider_config = CLOUD_PROVIDERS[provider]
+        self.api = None
+        if self.provider == PROVIDER_THERMOWORKS:
+            if api_key := config_entry.data.get(CONF_API_KEY):
+                self.integrations_api = IntegrationsApi(client_session, api_key)
+            return
+        provider_config = CLOUD_PROVIDERS[self.provider]
         self.auth_factory = AuthFactory(
             client_session,
             api_key=provider_config["api_key"],
             app_id=provider_config["app_id"],
             referer=provider_config["referer"],
         )
-        self.api = None
 
     async def async_update_data(self) -> ThermoworksData:
         """Fetch data from API endpoint.
@@ -85,6 +103,21 @@ class ThermoworksCoordinator(DataUpdateCoordinator[ThermoworksData]):
         _LOGGER.debug(
             "Polling ThermoWorks Cloud API (interval: %s seconds)", self.poll_interval
         )
+
+        if self.provider == PROVIDER_THERMOWORKS:
+            if self.integrations_api is None:
+                raise ConfigEntryAuthFailed(
+                    "ThermoWorks now requires an integration API key instead of a password"
+                )
+            try:
+                snapshot = await self.integrations_api.get_devices()
+                devices, channels = parse_snapshot(snapshot)
+                devices = self._preserve_identifiers(devices, channels)
+            except ApiAuthError as err:
+                raise ConfigEntryAuthFailed(str(err)) from err
+            except ApiError as err:
+                raise UpdateFailed(str(err)) from err
+            return ThermoworksData(devices=devices, device_channels=channels)
 
         try:
             if self.api is None:
@@ -155,6 +188,8 @@ class ThermoworksCoordinator(DataUpdateCoordinator[ThermoworksData]):
                 _LOGGER.debug("Found %d channels for device %s",
                               len(device_channels), device.display_name())
 
+        except AuthenticationError as err:
+            raise ConfigEntryAuthFailed("ETI credentials rejected") from err
         except Exception as err:
             # This will show entities as unavailable by raising UpdateFailed exception
             raise UpdateFailed(f"Error communicating with API: {err}") from err
@@ -166,6 +201,23 @@ class ThermoworksCoordinator(DataUpdateCoordinator[ThermoworksData]):
             devices=devices,
             device_channels=device_channels_by_device,
         )
+
+    def _preserve_identifiers(
+        self,
+        devices: list[ThermoworksDevice],
+        channels: dict[str, list[ThermoworksChannel]],
+    ) -> list[ThermoworksDevice]:
+        """Retain the serial fallback used by legacy entries without device_id."""
+        result = []
+        for device in devices:
+            if (
+                dr.format_mac(device.get_identifier()) not in self._registered_identifiers
+                and dr.format_mac(device.serial) in self._registered_identifiers
+            ):
+                channels[device.serial] = channels.pop(device.get_identifier())
+                device = replace(device, device_id=None)
+            result.append(device)
+        return result
 
     def get_device_by_id(self, device_id: str) -> ThermoworksDevice | None:
         """Return device by device id or serial."""

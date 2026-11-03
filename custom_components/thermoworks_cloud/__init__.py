@@ -8,7 +8,6 @@ from dataclasses import dataclass
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers.device_registry import DeviceEntry
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
@@ -38,10 +37,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Perform an initial data load from api.
     # async_config_entry_first_refresh() is special in that it does not log errors if it fails
     await coordinator.async_config_entry_first_refresh()
-
-    # Test to see if api initialised correctly, else raise ConfigNotReady to make HA retry setup
-    if not coordinator.api:
-        raise ConfigEntryNotReady
 
     # Initialise a listener for config flow options changes.
     # See config_flow for defining an options setting that shows up as configure on the integration.

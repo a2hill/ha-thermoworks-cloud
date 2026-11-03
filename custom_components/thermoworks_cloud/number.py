@@ -38,6 +38,7 @@ from homeassistant.components.number import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_SCAN_INTERVAL, EntityCategory, UnitOfTime
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -46,6 +47,7 @@ from .const import (
     DOMAIN,
     MAX_SCAN_INTERVAL_SECONDS,
     MIN_SCAN_INTERVAL_SECONDS,
+    minimum_scan_interval,
 )
 
 _LOGGER: logging.Logger = logging.getLogger(__package__)
@@ -88,6 +90,9 @@ class ScanIntervalNumber(NumberEntity):
     def __init__(self, config_entry: ConfigEntry) -> None:
         """Initialise the entity for the given config entry."""
         self._config_entry = config_entry
+        self._attr_native_min_value = minimum_scan_interval(
+            getattr(config_entry, "data", {})
+        )
         self._attr_unique_id = f"{config_entry.entry_id}_scan_interval"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, config_entry.entry_id)},
@@ -98,8 +103,11 @@ class ScanIntervalNumber(NumberEntity):
     @property
     def native_value(self) -> int:
         """Return the current scan interval in seconds from the options store."""
-        return self._config_entry.options.get(
-            CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL_SECONDS
+        return max(
+            self._attr_native_min_value,
+            self._config_entry.options.get(
+                CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL_SECONDS
+            ),
         )
 
     async def async_set_native_value(self, value: float) -> None:
@@ -111,6 +119,11 @@ class ScanIntervalNumber(NumberEntity):
         refresh -- so there is no need to update the coordinator from here.
         """
         new_interval = round(value)
+        if not self._attr_native_min_value <= new_interval <= MAX_SCAN_INTERVAL_SECONDS:
+            raise HomeAssistantError(
+                f"Scan interval must be between {self._attr_native_min_value} "
+                f"and {MAX_SCAN_INTERVAL_SECONDS} seconds"
+            )
         # Compare with native_value, not the raw option, so that setting the
         # default on an entry whose option was never saved is also a no-op.
         if new_interval == self.native_value:

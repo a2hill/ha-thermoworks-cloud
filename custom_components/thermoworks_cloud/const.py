@@ -1,5 +1,10 @@
 """Constants for the Thermoworks Cloud integration."""
 
+from collections.abc import Mapping
+from typing import Any
+
+from homeassistant.const import CONF_API_KEY
+
 DOMAIN = "thermoworks_cloud"
 # Setting to 30 minutes to be nice to their servers
 DEFAULT_SCAN_INTERVAL_SECONDS = 1800
@@ -10,6 +15,20 @@ MIN_SCAN_INTERVAL_SECONDS = 5
 MAX_SCAN_INTERVAL_SECONDS = 86400
 
 CONF_CLOUD_PROVIDER = "cloud_provider"
+CONF_ACCOUNT_ID = "account_id"
+CONF_RECOMMENDED_POLL_SECONDS = "recommended_poll_seconds"
+API_MIN_SCAN_INTERVAL_SECONDS = 60
+API_BASE_URL = "https://cloud.thermoworks.com/api/v1"
+
+
+def minimum_scan_interval(data: Mapping[str, Any]) -> int:
+    """Return the polling floor for this entry's authentication method."""
+    if CONF_API_KEY in data:
+        return max(
+            API_MIN_SCAN_INTERVAL_SECONDS,
+            data.get(CONF_RECOMMENDED_POLL_SECONDS, API_MIN_SCAN_INTERVAL_SECONDS),
+        )
+    return MIN_SCAN_INTERVAL_SECONDS
 
 PROVIDER_THERMOWORKS = "thermoworks"
 PROVIDER_ETI = "eti"

@@ -16,7 +16,9 @@ from custom_components.thermoworks_cloud.sensor import (
 
 def test_fan_entities_share_child_device_info() -> None:
     """Fan accessory entities are grouped under a child fan device."""
-    coordinator = SimpleNamespace(last_update_success=True)
+    coordinator = SimpleNamespace(
+        last_update_success=True, get_device_by_id=lambda _: device
+    )
     device = ThermoworksDevice(
         serial="RFX123",
         label="RFX Gateway",
@@ -43,7 +45,9 @@ def test_fan_entities_share_child_device_info() -> None:
 
 def test_fan_value_sensors_unavailable_when_disconnected() -> None:
     """Fan state and set temperature are unavailable when the fan is disconnected."""
-    coordinator = SimpleNamespace(last_update_success=True)
+    coordinator = SimpleNamespace(
+        last_update_success=True, get_device_by_id=lambda _: device
+    )
     device = ThermoworksDevice(
         serial="RFX123",
         label="RFX Gateway",
