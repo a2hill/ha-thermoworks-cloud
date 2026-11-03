@@ -17,6 +17,58 @@ If you have [HACS](https://hacs.xyz/) installed in your Home Assistant instance
 ### Manual Installation
 Copy the [custom_components/thermoworks_cloud](custom_components/) folder into the `config/custom_components` folder of your Home Assistant instance
 
+## ThermoWorks API key requirements
+
+ThermoWorks Cloud requires a **user-created integration API key** with
+`read:devices` access. Your ThermoWorks password and the web application's
+Firebase API key cannot be used in its place.
+
+To create a key, you need:
+
+* A ThermoWorks Cloud account with the devices you want to monitor.
+* The **Account Admin** or **API Admin** role on that account.
+* A plan with integrations API access enabled so the **Integrations** tab is
+  available in the web app.
+
+### Create an API key
+
+1. Sign in to [ThermoWorks Cloud](https://cloud.thermoworks.com/).
+2. Open your account settings and select **Integrations**. Make sure you are
+   viewing your own account, not another account shared with you.
+3. In **API keys**, select **Create API key**.
+4. Enter a recognizable name, such as `Home Assistant`.
+5. Choose an expiration. If you choose an expiration date, plan to replace the
+   key in Home Assistant before it expires.
+6. Select the devices Home Assistant should access. Leave the selection empty
+   to allow all devices on the account, including devices added later.
+7. Select **Create key** and copy the **complete key** from the one-time secret
+   dialog. The key is shown only once; the prefix in the key list is not enough.
+
+Keys provide read-only device access; they cannot change device settings.
+Treat the complete key like a password: do not put it in screenshots, logs,
+GitHub issues, or committed configuration. Use a separate key for Home Assistant
+so it can be revoked independently.
+
+If the **Integrations** tab is missing, verify your account, role, and plan with
+your account administrator or ThermoWorks support. If you lose the complete key,
+create a replacement and revoke the lost key; it cannot be displayed again.
+
+### Add the key to Home Assistant
+
+1. Install this integration and restart Home Assistant.
+2. Open **Settings > Devices & services > Add integration > ThermoWorks Cloud**.
+3. Select **ThermoWorks Cloud (US)**.
+4. Paste the complete API key into **API key** and submit.
+5. Use **Configure** to adjust the [scan interval](#controlling-the-scan-interval)
+   if needed. The default is 1,800 seconds; API-key entries enforce a minimum of
+   60 seconds or the API's longer recommendation.
+
+(#migrating-an-existing-thermoworks-entry).
+For a revoked, expired, or otherwise rejected key, Home Assistant requests
+reauthentication. Create a replacement key for the same account and enter it
+there. The integration connects to `https://cloud.thermoworks.com/api/v1`;
+you do not need to configure a server URL.
+
 ## Usage
 1. With this custom component installed into your HA instance, you will now see the ThermoWorks Cloud integration available as an integration that can be added (settings > Devices & services > Add Integration)
 1. Select the cloud provider. ThermoWorks Cloud uses a `read:devices` API key created in the account's **Integrations** tab, not an email/password login. ETI Cloud continues to use email/password.
