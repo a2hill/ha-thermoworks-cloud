@@ -88,7 +88,7 @@ async def validate_input(
 
         return {
             "title": CLOUD_PROVIDERS[provider]["name"],
-            "user": f"{provider}:{metadata['accountId']}",
+            "user": f"{provider}:{metadata.account_id}",
         }
 
     auth_factory = _build_auth_factory(hass, provider)

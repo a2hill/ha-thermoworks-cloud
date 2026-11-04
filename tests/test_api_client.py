@@ -8,7 +8,7 @@ import pytest
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import UpdateFailed
 from thermoworks_cloud import ApiAuthenticationError, ApiError
-from thermoworks_cloud.models import Device, DeviceChannel
+from thermoworks_cloud.models import Account, Device, DeviceChannel
 
 from custom_components.thermoworks_cloud import config_flow
 from custom_components.thermoworks_cloud.const import (
@@ -19,7 +19,7 @@ from custom_components.thermoworks_cloud.coordinator import ThermoworksCoordinat
 
 
 def test_setup_uses_account_identity_and_provider_endpoint():
-    client = SimpleNamespace(get_me=AsyncMock(return_value={"accountId": "account-1"}))
+    client = SimpleNamespace(get_me=AsyncMock(return_value=Account(account_id="account-1")))
     with (
         patch.object(config_flow, "async_get_clientsession", return_value="session"),
         patch.object(config_flow, "ThermoworksClient", return_value=client) as factory,
