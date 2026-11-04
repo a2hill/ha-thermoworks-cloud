@@ -202,9 +202,14 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     # This replaces all saved data, so a migrated entry loses its old password.
                     # The unique id is not compared, because entries saved with a password use
                     # a Firebase user id that an API key can't be matched against.
-                    return self.async_update_reload_and_abort(
-                        self._get_reauth_entry(), data=data
-                    )
+                    entry = self._get_reauth_entry()
+                    if entry.update_listeners:
+                        # A running entry reloads through its update listener. Home Assistant
+                        # does not allow this flow to also reload it from 2026.12.
+                        self.hass.config_entries.async_update_entry(entry, data=data)
+                        return self.async_abort(reason="reauth_successful")
+                    # An entry that failed setup, like one saved with a password, has no listener
+                    return self.async_update_reload_and_abort(entry, data=data)
                 await self.async_set_unique_id(info["user"])
                 self._abort_if_unique_id_configured()
                 return self.async_create_entry(title=info["title"], data=data)

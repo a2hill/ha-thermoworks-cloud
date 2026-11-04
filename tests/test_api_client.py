@@ -2,6 +2,7 @@
 
 from datetime import timedelta
 
+import pytest
 from homeassistant.config_entries import SOURCE_USER, ConfigEntryState
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD, CONF_SCAN_INTERVAL
 from homeassistant.core import HomeAssistant
@@ -217,6 +218,42 @@ async def test_rejected_key_asks_for_a_new_key(
 
     # Assert
     assert len(_reauth_flows(hass)) == 1
+
+
+async def test_new_key_restores_a_running_entry(
+    hass: HomeAssistant, api_test_object: ApiTestObject, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Test replacing a revoked key without using anything Home Assistant has deprecated."""
+
+    # Setup
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id=f"{PROVIDER_THERMOWORKS}:{TEST_ACCOUNT_ID}",
+        data={CONF_API_KEY: "twk_revoked", CONF_CLOUD_PROVIDER: PROVIDER_THERMOWORKS},
+    )
+    entry.add_to_hass(hass)
+    await _set_up(hass, entry)
+    api_test_object.respond_to_devices(status=401, body={"error": {"code": "invalid_api_key"}})
+    await _poll(hass)
+    api_test_object.respond_to_devices(body=GET_DEVICES_RESPONSE)
+    flow = _reauth_flows(hass)[0]
+
+    # Act
+    result = await hass.config_entries.flow.async_configure(
+        flow["flow_id"], {CONF_API_KEY: TEST_API_KEY}
+    )
+    await hass.async_block_till_done()
+
+    # Assert
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "reauth_successful"
+    assert entry.state is ConfigEntryState.LOADED
+    last_request = api_test_object.devices_requests[-1]
+    assert last_request.headers["Authorization"] == f"Bearer {TEST_API_KEY}"
+    state = hass.states.get(TEMPERATURE_ENTITY)
+    assert state is not None
+    assert state.state != "unavailable"
+    assert "This will stop working" not in caplog.text
 
 
 async def test_existing_password_user_is_asked_for_a_key(
