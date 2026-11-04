@@ -29,7 +29,9 @@ class TestDeviceNaming(TestCase):
 
         # Act
         battery = BatterySensor("sensor.battery", coordinator, device)
-        fan = FanStateSensor("sensor.fan", coordinator, device)
+        fan = FanStateSensor(
+            "sensor.fan", coordinator, device, gateway_registry_id="gateway-id"
+        )
 
         # Assert
         self.assertEqual(battery.device_info["name"], "Patio BBQ")
@@ -53,10 +55,16 @@ class TestDeviceNaming(TestCase):
 
         # Act
         missing_label_fan = FanStateSensor(
-            "sensor.missing_label_fan", coordinator, missing_label_device
+            "sensor.missing_label_fan",
+            coordinator,
+            missing_label_device,
+            gateway_registry_id="gateway-id",
         )
         empty_label_fan = FanStateSensor(
-            "sensor.empty_label_fan", coordinator, empty_label_device
+            "sensor.empty_label_fan",
+            coordinator,
+            empty_label_device,
+            gateway_registry_id="gateway-id",
         )
 
         # Assert
@@ -171,7 +179,9 @@ class TestDeviceNaming(TestCase):
         temperature = TemperatureSensor(
             "sensor.temperature", coordinator, device.get_identifier(), channel
         )
-        fan = FanStateSensor("sensor.fan", coordinator, device)
+        fan = FanStateSensor(
+            "sensor.fan", coordinator, device, gateway_registry_id="gateway-id"
+        )
 
         # Assert
         self.assertEqual(
@@ -204,7 +214,9 @@ class TestDeviceNaming(TestCase):
         temperature = TemperatureSensor(
             "sensor.temperature", coordinator, device.get_identifier(), channel
         )
-        fan = FanStateSensor("sensor.fan", coordinator, device)
+        fan = FanStateSensor(
+            "sensor.fan", coordinator, device, gateway_registry_id="gateway-id"
+        )
 
         # Assert
         self.assertEqual(

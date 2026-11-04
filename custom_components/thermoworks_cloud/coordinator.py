@@ -75,9 +75,9 @@ class ThermoworksCoordinator(DataUpdateCoordinator[ThermoworksData]):
             update_interval=timedelta(seconds=self.poll_interval),
         )
         client_session = async_get_clientsession(hass)
-        self.integrations_client: ThermoworksClient | None = None
+        self.client: ThermoworksClient | None = None
         if self.provider == PROVIDER_THERMOWORKS and config_entry.data.get(CONF_API_KEY):
-            self.integrations_client = ThermoworksClient(
+            self.client = ThermoworksClient(
                 client_session, config_entry.data[CONF_API_KEY],
                 base_url=CLOUD_PROVIDERS[self.provider]["base_url"],
             )
@@ -102,12 +102,12 @@ class ThermoworksCoordinator(DataUpdateCoordinator[ThermoworksData]):
         _LOGGER.debug(
             "Polling ThermoWorks Cloud API (interval: %s seconds)", self.poll_interval
         )
-        if self.provider == PROVIDER_THERMOWORKS and self.integrations_client is None:
+        if self.provider == PROVIDER_THERMOWORKS and self.client is None:
             raise ConfigEntryAuthFailed(
                 "ThermoWorks now requires an integrations API key"
             )
-        if self.integrations_client is not None:
-            return await self._async_update_integrations_data()
+        if self.client is not None:
+            return await self._async_update_api_data()
 
         try:
             if self.api is None:
@@ -190,11 +190,11 @@ class ThermoworksCoordinator(DataUpdateCoordinator[ThermoworksData]):
             device_channels=device_channels_by_device,
         )
 
-    async def _async_update_integrations_data(self) -> ThermoworksData:
+    async def _async_update_api_data(self) -> ThermoworksData:
         """Fetch and map the supported ThermoWorks integrations API snapshot."""
-        assert self.integrations_client is not None
+        assert self.client is not None
         try:
-            api_devices = await self.integrations_client.get_devices()
+            api_devices = await self.client.get_devices()
         except ApiAuthenticationError as err:
             raise ConfigEntryAuthFailed("ThermoWorks API key was rejected") from err
         except ApiError as err:
@@ -212,7 +212,7 @@ class ThermoworksCoordinator(DataUpdateCoordinator[ThermoworksData]):
 
             identifier = device.get_identifier()
             channels: list[ThermoworksChannel] = []
-            for api_channel in self.integrations_client.get_device_channels(identifier):
+            for api_channel in self.client.get_device_channels(identifier):
                 try:
                     channels.append(ThermoworksChannel.from_api_channel(api_channel))
                 except MissingRequiredAttributeError as err:
