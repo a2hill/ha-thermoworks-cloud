@@ -17,7 +17,7 @@
       },
       "api_key": {
         "title": "ThermoWorks API key",
-        "description": "Create a read:devices API key in ThermoWorks Cloud under Account > Integrations.",
+        "description": "Create an API key in ThermoWorks Cloud under Settings > Account Settings > Integrations.",
         "data": {
           "api_key": "API key"
         }
@@ -29,7 +29,9 @@
       "unknown": "[%key:common::config_flow::error::unknown%]"
     },
     "abort": {
-      "already_configured": "[%key:common::config_flow::abort::already_configured_account%]"
+      "already_configured": "[%key:common::config_flow::abort::already_configured_account%]",
+      "reauth_successful": "[%key:common::config_flow::abort::reauth_successful%]",
+      "reauth_entry_missing": "The configuration entry to reauthenticate no longer exists"
     }
   },
   "entity": {

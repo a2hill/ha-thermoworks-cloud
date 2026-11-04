@@ -10,8 +10,6 @@ See [Discussions - Device Interoperability](https://github.com/a2hill/ha-thermow
 
 ## Installation
 
-Requires Home Assistant 2026.8.0 or newer.
-
 ### HACS
 If you have [HACS](https://hacs.xyz/) installed in your Home Assistant instance
 
@@ -22,7 +20,7 @@ Copy the [custom_components/thermoworks_cloud](custom_components/) folder into t
 
 ## Usage
 1. With this custom component installed into your HA instance, you will now see the ThermoWorks Cloud integration available as an integration that can be added (settings > Devices & services > Add Integration)
-1. For ThermoWorks Cloud, create an API key under **Account → Integrations** in the ThermoWorks Cloud web app, then enter it during setup. Existing entries will request a key through reauthentication. ETI Cloud continues to use email and password.
+1. For ThermoWorks Cloud, create an API key under **Settings → Account Settings → Integrations** in the ThermoWorks Cloud web app, then enter it during setup. Existing entries will request a key through reauthentication. ETI Cloud continues to use email and password.
 1. After adding the integration, you will be required to set the [scan interval](#controlling-the-scan-interval) which will tell HA how often to request new data from ThermoWorks. This can be changed later.  
     * The default is 1,800 seconds (30 minutes), however this may be too slow for real-time applications like grilling with RFX
 

@@ -3,8 +3,10 @@
 DOMAIN = "thermoworks_cloud"
 # Setting to 30 minutes to be nice to their servers
 DEFAULT_SCAN_INTERVAL_SECONDS = 1800
-# The ThermoWorks API documents that polling more often than this returns the same data
-MIN_SCAN_INTERVAL_SECONDS = 60
+# The ThermoWorks API caches responses for 15 seconds, so polling faster can't return new data.
+# This also matches its free plan's limit of 4 requests per minute. Most devices report far less
+# often, and the free plan's daily limit is only sustainable at around 30 seconds.
+MIN_SCAN_INTERVAL_SECONDS = 15
 # Also arbitrary: an upper bound (24 hours) so the options flow and the scan
 # interval number entity agree on a maximum.
 MAX_SCAN_INTERVAL_SECONDS = 86400
