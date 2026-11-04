@@ -15,6 +15,7 @@ PROVIDER_ETI = "eti"
 CLOUD_PROVIDERS = {
     PROVIDER_THERMOWORKS: {
         "name": "ThermoWorks Cloud",
+        "base_url": "https://cloud.thermoworks.com/api",
         "api_key": None,  # Use library defaults
         "app_id": None,
         "referer": None,

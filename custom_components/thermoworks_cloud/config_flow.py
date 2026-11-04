@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import hashlib
 from typing import Any
 
 import voluptuous as vol
@@ -16,10 +15,10 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from thermoworks_cloud import (
     AuthenticationError,
     AuthFactory,
-    IntegrationsApiError,
-    IntegrationsAuthenticationError,
+    ApiError,
+    ApiAuthenticationError,
     ThermoworksCloud,
-    ThermoworksIntegrationsClient,
+    ThermoworksClient,
 )
 
 from .const import (
@@ -75,23 +74,20 @@ async def validate_input(
 ) -> dict[str, Any]:
     """Validate the user input allows us to connect."""
     if provider == PROVIDER_THERMOWORKS:
-        client = ThermoworksIntegrationsClient(
-            async_get_clientsession(hass), data[CONF_API_KEY]
+        client = ThermoworksClient(
+            async_get_clientsession(hass), data[CONF_API_KEY],
+            base_url=CLOUD_PROVIDERS[provider]["base_url"],
         )
         try:
-            await client.get_devices()
-        except IntegrationsAuthenticationError as err:
+            metadata = await client.get_me()
+        except ApiAuthenticationError as err:
             raise InvalidAuth from err
-        except IntegrationsApiError as err:
+        except ApiError as err:
             raise CannotConnect from err
 
-        key_parts = data[CONF_API_KEY].strip().split("_")
-        key_id = key_parts[1] if len(key_parts) > 2 and key_parts[0] == "twk" else hashlib.sha256(
-            data[CONF_API_KEY].strip().encode()
-        ).hexdigest()[:16]
         return {
             "title": CLOUD_PROVIDERS[provider]["name"],
-            "user": f"{provider}:{key_id}",
+            "user": f"{provider}:{metadata['accountId']}",
         }
 
     auth_factory = _build_auth_factory(hass, provider)

@@ -12,10 +12,10 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from thermoworks_cloud import (
     AuthFactory,
-    IntegrationsApiError,
-    IntegrationsAuthenticationError,
+    ApiError,
+    ApiAuthenticationError,
     ThermoworksCloud,
-    ThermoworksIntegrationsClient,
+    ThermoworksClient,
     ResourceNotFoundError,
 )
 
@@ -75,10 +75,11 @@ class ThermoworksCoordinator(DataUpdateCoordinator[ThermoworksData]):
             update_interval=timedelta(seconds=self.poll_interval),
         )
         client_session = async_get_clientsession(hass)
-        self.integrations_client: ThermoworksIntegrationsClient | None = None
+        self.integrations_client: ThermoworksClient | None = None
         if self.provider == PROVIDER_THERMOWORKS and config_entry.data.get(CONF_API_KEY):
-            self.integrations_client = ThermoworksIntegrationsClient(
-                client_session, config_entry.data[CONF_API_KEY]
+            self.integrations_client = ThermoworksClient(
+                client_session, config_entry.data[CONF_API_KEY],
+                base_url=CLOUD_PROVIDERS[self.provider]["base_url"],
             )
             self.auth_factory = None
         else:
@@ -191,9 +192,9 @@ class ThermoworksCoordinator(DataUpdateCoordinator[ThermoworksData]):
         assert self.integrations_client is not None
         try:
             api_devices = await self.integrations_client.get_devices()
-        except IntegrationsAuthenticationError as err:
+        except ApiAuthenticationError as err:
             raise ConfigEntryAuthFailed("ThermoWorks API key was rejected") from err
-        except IntegrationsApiError as err:
+        except ApiError as err:
             raise UpdateFailed(f"Error communicating with ThermoWorks API: {err}") from err
 
         devices: list[ThermoworksDevice] = []
