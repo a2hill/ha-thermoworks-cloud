@@ -14,6 +14,13 @@
           "email": "[%key:common::config_flow::data::email%]",
           "password": "[%key:common::config_flow::data::password%]"
         }
+      },
+      "api_key": {
+        "title": "ThermoWorks API key",
+        "description": "Create a read:devices API key in ThermoWorks Cloud under Account > Integrations.",
+        "data": {
+          "api_key": "API key"
+        }
       }
     },
     "error": {

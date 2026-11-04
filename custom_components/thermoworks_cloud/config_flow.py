@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import hashlib
 from typing import Any
 
 import voluptuous as vol
@@ -12,10 +13,18 @@ from homeassistant.const import CONF_EMAIL, CONF_PASSWORD, CONF_SCAN_INTERVAL
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
-from thermoworks_cloud import AuthenticationError, AuthFactory, ThermoworksCloud
+from thermoworks_cloud import (
+    AuthenticationError,
+    AuthFactory,
+    IntegrationsApiError,
+    IntegrationsAuthenticationError,
+    ThermoworksCloud,
+    ThermoworksIntegrationsClient,
+)
 
 from .const import (
     CLOUD_PROVIDERS,
+    CONF_API_KEY,
     CONF_CLOUD_PROVIDER,
     DEFAULT_SCAN_INTERVAL_SECONDS,
     DOMAIN,
@@ -44,6 +53,8 @@ CONFIG_SCHEMA = vol.Schema(
     }
 )
 
+API_KEY_SCHEMA = vol.Schema({vol.Required(CONF_API_KEY): str})
+
 
 def _build_auth_factory(
     hass: HomeAssistant, provider: str
@@ -63,6 +74,26 @@ async def validate_input(
     hass: HomeAssistant, data: dict[str, Any], provider: str
 ) -> dict[str, Any]:
     """Validate the user input allows us to connect."""
+    if provider == PROVIDER_THERMOWORKS:
+        client = ThermoworksIntegrationsClient(
+            async_get_clientsession(hass), data[CONF_API_KEY]
+        )
+        try:
+            await client.get_devices()
+        except IntegrationsAuthenticationError as err:
+            raise InvalidAuth from err
+        except IntegrationsApiError as err:
+            raise CannotConnect from err
+
+        key_parts = data[CONF_API_KEY].strip().split("_")
+        key_id = key_parts[1] if len(key_parts) > 2 and key_parts[0] == "twk" else hashlib.sha256(
+            data[CONF_API_KEY].strip().encode()
+        ).hexdigest()[:16]
+        return {
+            "title": CLOUD_PROVIDERS[provider]["name"],
+            "user": f"{provider}:{key_id}",
+        }
+
     auth_factory = _build_auth_factory(hass, provider)
     try:
         auth = await auth_factory.build_auth(
@@ -86,6 +117,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 1
     _input_data: dict[str, Any]
     _provider: str = PROVIDER_THERMOWORKS
+    _reauth_entry: config_entries.ConfigEntry | None = None
 
     @staticmethod
     @callback
@@ -101,6 +133,8 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Handle the cloud provider selection step."""
         if user_input is not None:
             self._provider = user_input[CONF_CLOUD_PROVIDER]
+            if self._provider == PROVIDER_THERMOWORKS:
+                return await self.async_step_api_key()
             return await self.async_step_credentials()
 
         return self.async_show_form(
@@ -124,6 +158,11 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors["base"] = "unknown"
 
             if "base" not in errors:
+                if self._reauth_entry is not None:
+                    return self.async_update_reload_and_abort(
+                        self._reauth_entry,
+                        data={**user_input, CONF_CLOUD_PROVIDER: self._provider},
+                    )
                 await self.async_set_unique_id(info.get("user"))
                 self._abort_if_unique_id_configured()
                 entry_data = {
@@ -134,6 +173,51 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="credentials", data_schema=CONFIG_SCHEMA, errors=errors
+        )
+
+    async def async_step_reauth(
+        self, entry_data: dict[str, Any]
+    ) -> config_entries.ConfigFlowResult:
+        """Handle reauthentication for an existing entry."""
+        self._reauth_entry = self.hass.config_entries.async_get_entry(
+            self.context["entry_id"]
+        )
+        if self._reauth_entry is None:
+            return self.async_abort(reason="reauth_entry_missing")
+        self._provider = entry_data.get(CONF_CLOUD_PROVIDER, PROVIDER_THERMOWORKS)
+        if self._provider == PROVIDER_THERMOWORKS:
+            return await self.async_step_api_key()
+        return await self.async_step_credentials()
+
+    async def async_step_api_key(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        """Handle a ThermoWorks integrations API key."""
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            user_input[CONF_API_KEY] = user_input[CONF_API_KEY].strip()
+            try:
+                info = await validate_input(self.hass, user_input, PROVIDER_THERMOWORKS)
+            except CannotConnect:
+                errors["base"] = "cannot_connect"
+            except InvalidAuth:
+                errors["base"] = "invalid_auth"
+            except Exception:
+                _LOGGER.exception("Unexpected exception validating ThermoWorks API key")
+                errors["base"] = "unknown"
+            else:
+                data = {
+                    **user_input,
+                    CONF_CLOUD_PROVIDER: PROVIDER_THERMOWORKS,
+                }
+                if self._reauth_entry is not None:
+                    return self.async_update_reload_and_abort(self._reauth_entry, data=data)
+                await self.async_set_unique_id(info["user"])
+                self._abort_if_unique_id_configured()
+                return self.async_create_entry(title=info["title"], data=data)
+
+        return self.async_show_form(
+            step_id="api_key", data_schema=API_KEY_SCHEMA, errors=errors
         )
 
 

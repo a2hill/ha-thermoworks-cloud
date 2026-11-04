@@ -8,12 +8,13 @@ from dataclasses import dataclass
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryNotReady
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import DeviceEntry
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .const import DOMAIN
 from .coordinator import ThermoworksCoordinator
+from .models import DeviceWithFan
 
 # The list of platforms provided by this integration
 PLATFORMS: list[Platform] = [Platform.BINARY_SENSOR, Platform.SENSOR]
@@ -39,9 +40,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # async_config_entry_first_refresh() is special in that it does not log errors if it fails
     await coordinator.async_config_entry_first_refresh()
 
-    # Test to see if api initialised correctly, else raise ConfigNotReady to make HA retry setup
-    if not coordinator.api:
-        raise ConfigEntryNotReady
+    # For devices with a Fan, the Fan's entities connect through the fan device as a gateway,
+    # so we ensure that the device is registered before the entities are processed
+    device_registry = dr.async_get(hass)
+    for device in coordinator.data.devices:
+        if DeviceWithFan.is_protocol_compliant(device):
+            device_registry.async_get_or_create(
+                config_entry_id=entry.entry_id,
+                identifiers={(DOMAIN, dr.format_mac(device.get_identifier()))},
+            )
 
     # Initialise a listener for config flow options changes.
     # See config_flow for defining an options setting that shows up as configure on the integration.

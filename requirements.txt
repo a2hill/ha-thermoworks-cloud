@@ -1,2 +1,2 @@
-thermoworks_cloud==0.1.16
-homeassistant==2025.1.2
+thermoworks_cloud==0.1.18
+homeassistant==2026.10.2

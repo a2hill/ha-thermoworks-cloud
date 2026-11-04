@@ -9,6 +9,9 @@ This integration allows [Home Assistant](https://www.home-assistant.io/) to pull
 See [Discussions - Device Interoperability](https://github.com/a2hill/ha-thermoworks-cloud/discussions/6)
 
 ## Installation
+
+Requires Home Assistant 2026.8.0 or newer.
+
 ### HACS
 If you have [HACS](https://hacs.xyz/) installed in your Home Assistant instance
 
