@@ -56,6 +56,11 @@
         "name": "Low Alarm"
       }
     },
+    "number": {
+      "scan_interval": {
+        "name": "Scan interval"
+      }
+    },
     "sensor": {
       "battery": {
         "name": "Battery"

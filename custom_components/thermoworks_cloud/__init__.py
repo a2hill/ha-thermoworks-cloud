@@ -17,7 +17,7 @@ from .coordinator import ThermoworksCoordinator
 from .models import DeviceWithFan
 
 # The list of platforms provided by this integration
-PLATFORMS: list[Platform] = [Platform.BINARY_SENSOR, Platform.SENSOR]
+PLATFORMS: list[Platform] = [Platform.BINARY_SENSOR, Platform.NUMBER, Platform.SENSOR]
 
 
 @dataclass

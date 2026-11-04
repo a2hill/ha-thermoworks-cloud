@@ -1,7 +1,4 @@
 {
     "name": "ThermoWorks Cloud",
-    "homeassistant": "2026.8.0",
-    "country": [
-        "US"
-    ]
+    "homeassistant": "2026.8.0"
 }

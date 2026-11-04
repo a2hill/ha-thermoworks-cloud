@@ -27,6 +27,7 @@ from .const import (
     CONF_CLOUD_PROVIDER,
     DEFAULT_SCAN_INTERVAL_SECONDS,
     DOMAIN,
+    MAX_SCAN_INTERVAL_SECONDS,
     MIN_SCAN_INTERVAL_SECONDS,
     PROVIDER_ETI,
     PROVIDER_THERMOWORKS,
@@ -233,7 +234,13 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     default=self.config_entry.options.get(
                         CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL_SECONDS
                     ),
-                ): vol.All(vol.Coerce(int), vol.Clamp(min=MIN_SCAN_INTERVAL_SECONDS)),
+                ): vol.All(
+                    vol.Coerce(int),
+                    vol.Clamp(
+                        min=MIN_SCAN_INTERVAL_SECONDS,
+                        max=MAX_SCAN_INTERVAL_SECONDS,
+                    ),
+                ),
             }
         )
 
