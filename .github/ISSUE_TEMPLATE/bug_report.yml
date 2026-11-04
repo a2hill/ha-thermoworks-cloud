@@ -1,0 +1,40 @@
+name: Bug report
+description: Report a problem with a device or the integration
+labels: ["bug"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened?
+      description: What did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: input
+    id: devices
+    attributes:
+      label: Devices
+      description: Models and firmware, such as "RFX Gateway 1.2.3 with 2 RFX Meat probes and a Billows".
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Integration and Home Assistant versions
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: |
+        In Home Assistant, open **Settings → Devices & services → ThermoWorks Cloud**, select the
+        three dots menu, choose **Download diagnostics**, and drop the file here. Serial numbers,
+        labels and your API key are removed. If you can, capture it with the affected device on.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Any errors from the Home Assistant logs. Enable debug logging if you can.
+      render: text

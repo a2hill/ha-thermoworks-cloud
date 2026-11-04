@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from aiohttp import ClientError
 import voluptuous as vol
 
 from homeassistant import config_entries
@@ -12,10 +13,17 @@ from homeassistant.const import CONF_EMAIL, CONF_PASSWORD, CONF_SCAN_INTERVAL
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
-from thermoworks_cloud import AuthenticationError, AuthFactory, ThermoworksCloud
+from thermoworks_cloud import (
+    AuthenticationError,
+    AuthFactory,
+    ApiAuthenticationError,
+    ThermoworksCloud,
+    ThermoworksClient,
+)
 
 from .const import (
     CLOUD_PROVIDERS,
+    CONF_API_KEY,
     CONF_CLOUD_PROVIDER,
     DEFAULT_SCAN_INTERVAL_SECONDS,
     DOMAIN,
@@ -45,6 +53,8 @@ CONFIG_SCHEMA = vol.Schema(
     }
 )
 
+API_KEY_SCHEMA = vol.Schema({vol.Required(CONF_API_KEY): str})
+
 
 def _build_auth_factory(
     hass: HomeAssistant, provider: str
@@ -64,6 +74,23 @@ async def validate_input(
     hass: HomeAssistant, data: dict[str, Any], provider: str
 ) -> dict[str, Any]:
     """Validate the user input allows us to connect."""
+    if provider == PROVIDER_THERMOWORKS:
+        client = ThermoworksClient(
+            async_get_clientsession(hass), data[CONF_API_KEY],
+            base_url=CLOUD_PROVIDERS[provider]["base_url"],
+        )
+        try:
+            metadata = await client.get_me()
+        except ApiAuthenticationError as err:
+            raise InvalidAuth from err
+        except (ClientError, RuntimeError, TimeoutError) as err:
+            raise CannotConnect from err
+
+        return {
+            "title": CLOUD_PROVIDERS[provider]["name"],
+            "user": f"{provider}:{metadata.account_id}",
+        }
+
     auth_factory = _build_auth_factory(hass, provider)
     try:
         auth = await auth_factory.build_auth(
@@ -102,6 +129,8 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Handle the cloud provider selection step."""
         if user_input is not None:
             self._provider = user_input[CONF_CLOUD_PROVIDER]
+            if self._provider == PROVIDER_THERMOWORKS:
+                return await self.async_step_api_key()
             return await self.async_step_credentials()
 
         return self.async_show_form(
@@ -135,6 +164,61 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="credentials", data_schema=CONFIG_SCHEMA, errors=errors
+        )
+
+    async def async_step_reauth(
+        self, entry_data: dict[str, Any]
+    ) -> config_entries.ConfigFlowResult:
+        """Ask for a new API key.
+
+        The coordinator starts this for ThermoWorks entries only: when an API key is rejected,
+        and for entries saved with a password before API keys existed. Firebase providers never
+        start it, so a password is never asked for here.
+        """
+        return await self.async_step_api_key()
+
+    async def async_step_api_key(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        """Handle a ThermoWorks integrations API key."""
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            user_input[CONF_API_KEY] = user_input[CONF_API_KEY].strip()
+            try:
+                info = await validate_input(self.hass, user_input, PROVIDER_THERMOWORKS)
+            except CannotConnect:
+                errors["base"] = "cannot_connect"
+            except InvalidAuth:
+                errors["base"] = "invalid_auth"
+            except Exception:
+                _LOGGER.exception("Unexpected exception validating ThermoWorks API key")
+                errors["base"] = "unknown"
+            else:
+                data = {
+                    **user_input,
+                    CONF_CLOUD_PROVIDER: PROVIDER_THERMOWORKS,
+                }
+                if self.source == config_entries.SOURCE_REAUTH:
+                    # This replaces all saved data, so a migrated entry loses its old password.
+                    # The unique id is not compared, because entries saved with a password use
+                    # a Firebase user id that an API key can't be matched against.
+                    entry = self._get_reauth_entry()
+                    # The update listener reloads a running entry when its data changes, and from
+                    # 2026.12 Home Assistant does not allow this flow to do that as well. Anything
+                    # else needs a reload here, because the coordinator stops polling once a key
+                    # is rejected: an unchanged key, or an entry that failed setup and so has no
+                    # listener, like one saved with a password.
+                    reload_here = entry.data == data or not entry.update_listeners
+                    result = self.async_update_and_abort(entry, data=data)
+                    if reload_here:
+                        self.hass.config_entries.async_schedule_reload(entry.entry_id)
+                    return result
+                await self.async_set_unique_id(info["user"])
+                self._abort_if_unique_id_configured()
+                return self.async_create_entry(title=info["title"], data=data)
+
+        return self.async_show_form(
+            step_id="api_key", data_schema=API_KEY_SCHEMA, errors=errors
         )
 
 

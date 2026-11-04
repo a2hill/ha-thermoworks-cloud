@@ -7,12 +7,21 @@ import logging
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD, CONF_SCAN_INTERVAL
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
-from thermoworks_cloud import AuthFactory, ThermoworksCloud, ResourceNotFoundError
+from thermoworks_cloud import (
+    AuthFactory,
+    ApiAuthenticationError,
+    RateLimitError,
+    ThermoworksCloud,
+    ThermoworksClient,
+    ResourceNotFoundError,
+)
 
 from .const import (
     CLOUD_PROVIDERS,
+    CONF_API_KEY,
     CONF_CLOUD_PROVIDER,
     DEFAULT_SCAN_INTERVAL_SECONDS,
     DOMAIN,
@@ -45,8 +54,9 @@ class ThermoworksCoordinator(DataUpdateCoordinator[ThermoworksData]):
         """Initialize coordinator."""
 
         # Set variables from values entered in config flow setup
-        self.email = config_entry.data[CONF_EMAIL]
-        self.password = config_entry.data[CONF_PASSWORD]
+        self.email = config_entry.data.get(CONF_EMAIL)
+        self.password = config_entry.data.get(CONF_PASSWORD)
+        self.provider = config_entry.data.get(CONF_CLOUD_PROVIDER, PROVIDER_THERMOWORKS)
 
         # set variables from options.  You need a default here incase options have not been set
         self.poll_interval = config_entry.options.get(
@@ -65,14 +75,21 @@ class ThermoworksCoordinator(DataUpdateCoordinator[ThermoworksData]):
             update_interval=timedelta(seconds=self.poll_interval),
         )
         client_session = async_get_clientsession(hass)
-        provider = config_entry.data.get(CONF_CLOUD_PROVIDER, PROVIDER_THERMOWORKS)
-        provider_config = CLOUD_PROVIDERS[provider]
-        self.auth_factory = AuthFactory(
-            client_session,
-            api_key=provider_config["api_key"],
-            app_id=provider_config["app_id"],
-            referer=provider_config["referer"],
-        )
+        self.client: ThermoworksClient | None = None
+        if self.provider == PROVIDER_THERMOWORKS and config_entry.data.get(CONF_API_KEY):
+            self.client = ThermoworksClient(
+                client_session, config_entry.data[CONF_API_KEY],
+                base_url=CLOUD_PROVIDERS[self.provider]["base_url"],
+            )
+            self.auth_factory = None
+        else:
+            provider_config = CLOUD_PROVIDERS[self.provider]
+            self.auth_factory = AuthFactory(
+                client_session,
+                api_key=provider_config["api_key"],
+                app_id=provider_config["app_id"],
+                referer=provider_config["referer"],
+            )
         self.api = None
 
     async def async_update_data(self) -> ThermoworksData:
@@ -85,6 +102,12 @@ class ThermoworksCoordinator(DataUpdateCoordinator[ThermoworksData]):
         _LOGGER.debug(
             "Polling ThermoWorks Cloud API (interval: %s seconds)", self.poll_interval
         )
+        if self.provider == PROVIDER_THERMOWORKS and self.client is None:
+            raise ConfigEntryAuthFailed(
+                "ThermoWorks now requires an integrations API key"
+            )
+        if self.client is not None:
+            return await self._async_update_api_data()
 
         try:
             if self.api is None:
@@ -166,6 +189,44 @@ class ThermoworksCoordinator(DataUpdateCoordinator[ThermoworksData]):
             devices=devices,
             device_channels=device_channels_by_device,
         )
+
+    async def _async_update_api_data(self) -> ThermoworksData:
+        """Fetch all devices and their channels in a single ThermoWorks API request."""
+        assert self.client is not None
+        try:
+            api_devices = await self.client.get_devices()
+        except ApiAuthenticationError as err:
+            raise ConfigEntryAuthFailed("ThermoWorks API key was rejected") from err
+        except RateLimitError as err:
+            raise UpdateFailed(
+                f"Error communicating with API: {err}", retry_after=err.retry_after
+            ) from err
+        except Exception as err:
+            # This will show entities as unavailable by raising UpdateFailed exception
+            raise UpdateFailed(f"Error communicating with API: {err}") from err
+
+        devices: list[ThermoworksDevice] = []
+        device_channels_by_device: dict[str, list[ThermoworksChannel]] = {}
+        for api_device in api_devices:
+            try:
+                device = ThermoworksDevice.from_api_device(api_device)
+                devices.append(device)
+            except MissingRequiredAttributeError as err:
+                _LOGGER.error("Device %s: %s", api_device, err)
+                # Skip this device as it's missing critical data
+                continue
+
+            device_channels = []
+            for api_channel in api_device.channels or []:
+                try:
+                    device_channels.append(ThermoworksChannel.from_api_channel(api_channel))
+                except MissingRequiredAttributeError as err:
+                    _LOGGER.error("Channel for device %s: %s", device.display_name(), err)
+                    # Skip this channel as it's missing critical data
+            device_channels_by_device[device.get_identifier()] = device_channels
+
+        _LOGGER.debug("Update completed: %d devices with data retrieved", len(devices))
+        return ThermoworksData(devices=devices, device_channels=device_channels_by_device)
 
     def get_device_by_id(self, device_id: str) -> ThermoworksDevice | None:
         """Return device by device id or serial."""
