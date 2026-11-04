@@ -12,8 +12,8 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from thermoworks_cloud import (
     AuthFactory,
-    ApiError,
     ApiAuthenticationError,
+    RateLimitError,
     ThermoworksCloud,
     ThermoworksClient,
     ResourceNotFoundError,
@@ -191,14 +191,19 @@ class ThermoworksCoordinator(DataUpdateCoordinator[ThermoworksData]):
         )
 
     async def _async_update_api_data(self) -> ThermoworksData:
-        """Fetch and map the supported ThermoWorks integrations API snapshot."""
+        """Fetch all devices and their channels in a single ThermoWorks API request."""
         assert self.client is not None
         try:
             api_devices = await self.client.get_devices()
         except ApiAuthenticationError as err:
             raise ConfigEntryAuthFailed("ThermoWorks API key was rejected") from err
-        except ApiError as err:
-            raise UpdateFailed(f"Error communicating with ThermoWorks API: {err}") from err
+        except RateLimitError as err:
+            raise UpdateFailed(
+                f"Error communicating with API: {err}", retry_after=err.retry_after
+            ) from err
+        except Exception as err:
+            # This will show entities as unavailable by raising UpdateFailed exception
+            raise UpdateFailed(f"Error communicating with API: {err}") from err
 
         devices: list[ThermoworksDevice] = []
         device_channels_by_device: dict[str, list[ThermoworksChannel]] = {}
@@ -208,16 +213,17 @@ class ThermoworksCoordinator(DataUpdateCoordinator[ThermoworksData]):
                 devices.append(device)
             except MissingRequiredAttributeError as err:
                 _LOGGER.error("Device %s: %s", api_device, err)
+                # Skip this device as it's missing critical data
                 continue
 
-            identifier = device.get_identifier()
-            channels: list[ThermoworksChannel] = []
-            for api_channel in self.client.get_device_channels(identifier):
+            device_channels = []
+            for api_channel in api_device.channels or []:
                 try:
-                    channels.append(ThermoworksChannel.from_api_channel(api_channel))
+                    device_channels.append(ThermoworksChannel.from_api_channel(api_channel))
                 except MissingRequiredAttributeError as err:
                     _LOGGER.error("Channel for device %s: %s", device.display_name(), err)
-            device_channels_by_device[identifier] = channels
+                    # Skip this channel as it's missing critical data
+            device_channels_by_device[device.get_identifier()] = device_channels
 
         _LOGGER.debug("Update completed: %d devices with data retrieved", len(devices))
         return ThermoworksData(devices=devices, device_channels=device_channels_by_device)

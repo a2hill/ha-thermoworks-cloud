@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import UpdateFailed
-from thermoworks_cloud import ApiAuthenticationError, ApiError
+from thermoworks_cloud import ApiAuthenticationError, RateLimitError
 from thermoworks_cloud.models import Account, Device, DeviceChannel
 
 from custom_components.thermoworks_cloud import config_flow
@@ -38,14 +38,11 @@ def test_setup_uses_account_identity_and_provider_endpoint():
 
 
 def test_coordinator_keeps_existing_device_and_channel_identifiers():
-    device = Device(device_id="device-1", serial="serial-1", label="Kitchen")
     channel = DeviceChannel(number="1", value=23.0, units="C")
-    client = SimpleNamespace(
-        get_devices=AsyncMock(return_value=[device]),
-        get_device_channels=lambda identifier: (
-            [channel] if identifier == "device-1" else []
-        ),
+    device = Device(
+        device_id="device-1", serial="serial-1", label="Kitchen", channels=[channel]
     )
+    client = SimpleNamespace(get_devices=AsyncMock(return_value=[device]))
     coordinator = object.__new__(ThermoworksCoordinator)
     coordinator.client = client
     coordinator.provider = PROVIDER_THERMOWORKS
@@ -60,7 +57,7 @@ def test_coordinator_keeps_existing_device_and_channel_identifiers():
     "error, expected",
     [
         (ApiAuthenticationError("rejected"), ConfigEntryAuthFailed),
-        (ApiError("offline"), UpdateFailed),
+        (RuntimeError("offline"), UpdateFailed),
     ],
 )
 def test_coordinator_distinguishes_authentication_and_service_errors(error, expected):
@@ -70,3 +67,25 @@ def test_coordinator_distinguishes_authentication_and_service_errors(error, expe
     coordinator.poll_interval = 60
     with pytest.raises(expected):
         asyncio.run(coordinator.async_update_data())
+
+
+def test_coordinator_passes_rate_limit_delay_to_update_failed():
+    coordinator = object.__new__(ThermoworksCoordinator)
+    coordinator.client = SimpleNamespace(
+        get_devices=AsyncMock(side_effect=RateLimitError("limited", retry_after=12))
+    )
+    coordinator.provider = PROVIDER_THERMOWORKS
+    coordinator.poll_interval = 60
+    with pytest.raises(UpdateFailed) as error:
+        asyncio.run(coordinator.async_update_data())
+    assert error.value.retry_after == 12
+
+
+def test_coordinator_keeps_device_without_channels():
+    device = Device(device_id="device-1", serial="serial-1", channels=None)
+    coordinator = object.__new__(ThermoworksCoordinator)
+    coordinator.client = SimpleNamespace(get_devices=AsyncMock(return_value=[device]))
+    coordinator.provider = PROVIDER_THERMOWORKS
+    coordinator.poll_interval = 60
+    result = asyncio.run(coordinator.async_update_data())
+    assert result.device_channels["device-1"] == []

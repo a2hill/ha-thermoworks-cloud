@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from aiohttp import ClientError
 import voluptuous as vol
 
 from homeassistant import config_entries
@@ -15,7 +16,6 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from thermoworks_cloud import (
     AuthenticationError,
     AuthFactory,
-    ApiError,
     ApiAuthenticationError,
     ThermoworksCloud,
     ThermoworksClient,
@@ -83,7 +83,7 @@ async def validate_input(
             metadata = await client.get_me()
         except ApiAuthenticationError as err:
             raise InvalidAuth from err
-        except ApiError as err:
+        except (ClientError, RuntimeError, TimeoutError) as err:
             raise CannotConnect from err
 
         return {
