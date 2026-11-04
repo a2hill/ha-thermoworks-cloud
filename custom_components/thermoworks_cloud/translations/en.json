@@ -29,8 +29,7 @@
       "unknown": "Unexpected error"
     },
     "abort": {
-      "already_configured": "Account is already configured",
-      "reauth_successful": "Re-authentication was successful"
+      "already_configured": "Account is already configured"
     }
   },
   "options": {

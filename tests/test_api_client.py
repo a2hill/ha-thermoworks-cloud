@@ -1,8 +1,8 @@
 """Test the integration end to end, from the ThermoWorks HTTP API to Home Assistant states."""
 
 from datetime import timedelta
+from unittest.mock import patch
 
-import pytest
 from homeassistant.config_entries import SOURCE_USER, ConfigEntryState
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD, CONF_SCAN_INTERVAL
 from homeassistant.core import HomeAssistant
@@ -221,9 +221,9 @@ async def test_rejected_key_asks_for_a_new_key(
 
 
 async def test_new_key_restores_a_running_entry(
-    hass: HomeAssistant, api_test_object: ApiTestObject, caplog: pytest.LogCaptureFixture
+    hass: HomeAssistant, api_test_object: ApiTestObject
 ) -> None:
-    """Test replacing a revoked key without using anything Home Assistant has deprecated."""
+    """Test that entering a new key for a revoked one reloads the entry and uses the new key."""
 
     # Setup
     entry = MockConfigEntry(
@@ -253,7 +253,39 @@ async def test_new_key_restores_a_running_entry(
     state = hass.states.get(TEMPERATURE_ENTITY)
     assert state is not None
     assert state.state != "unavailable"
-    assert "This will stop working" not in caplog.text
+
+
+async def test_same_key_recovers_a_running_entry(
+    hass: HomeAssistant, api_test_object: ApiTestObject
+) -> None:
+    """Test re-entering a key after a temporary rejection.
+
+    The saved data does not change, so the update listener does not reload the entry, and polling
+    has stopped since the key was rejected. The flow has to reload it, without the call that Home
+    Assistant no longer allows from 2026.12.
+    """
+
+    # Setup
+    entry = _api_key_entry(hass)
+    await _set_up(hass, entry)
+    api_test_object.respond_to_devices(status=401, body={"error": {"code": "invalid_api_key"}})
+    await _poll(hass)
+    api_test_object.respond_to_devices(body=GET_DEVICES_RESPONSE)
+    flow = _reauth_flows(hass)[0]
+
+    # Act
+    with patch("homeassistant.config_entries.report_usage") as report_usage:
+        result = await hass.config_entries.flow.async_configure(
+            flow["flow_id"], {CONF_API_KEY: TEST_API_KEY}
+        )
+        await hass.async_block_till_done()
+
+    # Assert
+    report_usage.assert_not_called()
+    assert result["reason"] == "reauth_successful"
+    state = hass.states.get(TEMPERATURE_ENTITY)
+    assert state is not None
+    assert state.state != "unavailable"
 
 
 async def test_existing_password_user_is_asked_for_a_key(

@@ -203,13 +203,16 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     # The unique id is not compared, because entries saved with a password use
                     # a Firebase user id that an API key can't be matched against.
                     entry = self._get_reauth_entry()
-                    if entry.update_listeners:
-                        # A running entry reloads through its update listener. Home Assistant
-                        # does not allow this flow to also reload it from 2026.12.
-                        self.hass.config_entries.async_update_entry(entry, data=data)
-                        return self.async_abort(reason="reauth_successful")
-                    # An entry that failed setup, like one saved with a password, has no listener
-                    return self.async_update_reload_and_abort(entry, data=data)
+                    # The update listener reloads a running entry when its data changes, and from
+                    # 2026.12 Home Assistant does not allow this flow to do that as well. Anything
+                    # else needs a reload here, because the coordinator stops polling once a key
+                    # is rejected: an unchanged key, or an entry that failed setup and so has no
+                    # listener, like one saved with a password.
+                    reload_here = entry.data == data or not entry.update_listeners
+                    result = self.async_update_and_abort(entry, data=data)
+                    if reload_here:
+                        self.hass.config_entries.async_schedule_reload(entry.entry_id)
+                    return result
                 await self.async_set_unique_id(info["user"])
                 self._abort_if_unique_id_configured()
                 return self.async_create_entry(title=info["title"], data=data)
