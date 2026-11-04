@@ -3,7 +3,7 @@
 from types import SimpleNamespace
 
 from homeassistant.const import UnitOfTemperature
-from thermoworks_cloud.models import Alarm
+from custom_components.thermoworks_cloud.api import Alarm
 
 from custom_components.thermoworks_cloud.binary_sensor import (
     HighAlarmBinarySensor,

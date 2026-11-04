@@ -2,91 +2,61 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 import logging
 from typing import Any
 
 import voluptuous as vol
 
 from homeassistant import config_entries
-from homeassistant.const import CONF_EMAIL, CONF_PASSWORD, CONF_SCAN_INTERVAL
+from homeassistant.const import CONF_API_KEY, CONF_SCAN_INTERVAL
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
-from thermoworks_cloud import AuthenticationError, AuthFactory, ThermoworksCloud
 
+from .api import (
+    ApiKeyInfo,
+    CannotConnectError,
+    InvalidApiKeyError,
+    RateLimitedError,
+    ThermoworksApiClient,
+)
 from .const import (
-    CLOUD_PROVIDERS,
-    CONF_CLOUD_PROVIDER,
     DEFAULT_SCAN_INTERVAL_SECONDS,
     DOMAIN,
     MAX_SCAN_INTERVAL_SECONDS,
     MIN_SCAN_INTERVAL_SECONDS,
-    PROVIDER_ETI,
-    PROVIDER_THERMOWORKS,
 )
 
 _LOGGER: logging.Logger = logging.getLogger(__package__)
 
-PROVIDER_SCHEMA = vol.Schema(
-    {
-        vol.Required(CONF_CLOUD_PROVIDER, default=PROVIDER_THERMOWORKS): vol.In(
-            {
-                PROVIDER_THERMOWORKS: "ThermoWorks Cloud (US)",
-                PROVIDER_ETI: "ETI Cloud (UK/International)",
-            }
-        ),
-    }
-)
+API_KEY_SCHEMA = vol.Schema({vol.Required(CONF_API_KEY): str})
 
-CONFIG_SCHEMA = vol.Schema(
-    {
-        vol.Required(CONF_EMAIL): str,
-        vol.Required(CONF_PASSWORD): str,
-    }
-)
+API_KEY_HELP = {
+    "integrations_url": "https://cloud.thermoworks.com/",
+    "docs_url": "https://cloud.thermoworks.com/api/docs/",
+}
 
 
-def _build_auth_factory(
-    hass: HomeAssistant, provider: str
-) -> AuthFactory:
-    """Build an AuthFactory for the given cloud provider."""
-    client_session = async_get_clientsession(hass)
-    provider_config = CLOUD_PROVIDERS[provider]
-    return AuthFactory(
-        client_session,
-        api_key=provider_config["api_key"],
-        app_id=provider_config["app_id"],
-        referer=provider_config["referer"],
-    )
-
-
-async def validate_input(
-    hass: HomeAssistant, data: dict[str, Any], provider: str
-) -> dict[str, Any]:
-    """Validate the user input allows us to connect."""
-    auth_factory = _build_auth_factory(hass, provider)
+async def validate_api_key(hass: HomeAssistant, api_key: str) -> ApiKeyInfo:
+    """Check the key against GET /v1/me and GET /v1/devices."""
+    client = ThermoworksApiClient(async_get_clientsession(hass), api_key)
     try:
-        auth = await auth_factory.build_auth(
-            data[CONF_EMAIL], password=data[CONF_PASSWORD]
-        )
-        thermoworks_cloud = ThermoworksCloud(auth)
-        await thermoworks_cloud.get_user()
-
-    except AuthenticationError as e:
-        raise InvalidAuth from e
-    except ConnectionError as e:
-        raise CannotConnect from e
-
-    provider_name = CLOUD_PROVIDERS[provider]["name"]
-    return {"title": provider_name, "user": auth.user_id}
+        info = await client.get_me()
+        await client.get_devices()
+    except InvalidApiKeyError as err:
+        raise InvalidAuth from err
+    except RateLimitedError as err:
+        raise RateLimited from err
+    except CannotConnectError as err:
+        raise CannotConnect from err
+    return info
 
 
 class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for ThermoWorks Cloud."""
 
     VERSION = 1
-    _input_data: dict[str, Any]
-    _provider: str = PROVIDER_THERMOWORKS
 
     @staticmethod
     @callback
@@ -96,45 +66,71 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Get the options flow for this handler."""
         return OptionsFlowHandler()
 
+    async def _async_check_key(self, api_key: str) -> tuple[ApiKeyInfo | None, dict[str, str]]:
+        errors: dict[str, str] = {}
+        try:
+            return await validate_api_key(self.hass, api_key.strip()), errors
+        except CannotConnect:
+            errors["base"] = "cannot_connect"
+        except InvalidAuth:
+            errors["base"] = "invalid_api_key"
+        except RateLimited:
+            errors["base"] = "rate_limited"
+        except Exception:  # pylint: disable=broad-except
+            _LOGGER.exception("Unexpected exception validating ThermoWorks API key")
+            errors["base"] = "unknown"
+        return None, errors
+
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
-        """Handle the cloud provider selection step."""
-        if user_input is not None:
-            self._provider = user_input[CONF_CLOUD_PROVIDER]
-            return await self.async_step_credentials()
-
-        return self.async_show_form(
-            step_id="user", data_schema=PROVIDER_SCHEMA
-        )
-
-    async def async_step_credentials(
-        self, user_input: dict[str, Any] | None = None
-    ) -> config_entries.ConfigFlowResult:
-        """Handle the credentials step."""
+        """Ask for a ThermoWorks Cloud API key."""
         errors: dict[str, str] = {}
         if user_input is not None:
-            try:
-                info = await validate_input(self.hass, user_input, self._provider)
-            except CannotConnect:
-                errors["base"] = "cannot_connect"
-            except InvalidAuth:
-                errors["base"] = "invalid_auth"
-            except Exception as e:
-                _LOGGER.exception(f"Unexpected exception: {e}")
-                errors["base"] = "unknown"
-
-            if "base" not in errors:
-                await self.async_set_unique_id(info.get("user"))
+            info, errors = await self._async_check_key(user_input[CONF_API_KEY])
+            if info is not None:
+                await self.async_set_unique_id(info.account_id or info.key_id)
                 self._abort_if_unique_id_configured()
-                entry_data = {
-                    **user_input,
-                    CONF_CLOUD_PROVIDER: self._provider,
-                }
-                return self.async_create_entry(title=info["title"], data=entry_data)
+                title = "ThermoWorks Cloud"
+                if info.key_name:
+                    title = f"ThermoWorks Cloud ({info.key_name})"
+                return self.async_create_entry(
+                    title=title,
+                    data={CONF_API_KEY: user_input[CONF_API_KEY].strip()},
+                )
 
         return self.async_show_form(
-            step_id="credentials", data_schema=CONFIG_SCHEMA, errors=errors
+            step_id="user",
+            data_schema=API_KEY_SCHEMA,
+            errors=errors,
+            description_placeholders=API_KEY_HELP,
+        )
+
+    async def async_step_reauth(
+        self, entry_data: Mapping[str, Any]
+    ) -> config_entries.ConfigFlowResult:
+        """Start reauth: an old email/password entry, or a key that was revoked or expired."""
+        return await self.async_step_reauth_confirm()
+
+    async def async_step_reauth_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        """Ask for a new API key and keep the existing entry, devices and entities."""
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            info, errors = await self._async_check_key(user_input[CONF_API_KEY])
+            if info is not None:
+                # Replace the data outright so the old email and password are discarded.
+                return self.async_update_reload_and_abort(
+                    self._get_reauth_entry(),
+                    data={CONF_API_KEY: user_input[CONF_API_KEY].strip()},
+                )
+
+        return self.async_show_form(
+            step_id="reauth_confirm",
+            data_schema=API_KEY_SCHEMA,
+            errors=errors,
+            description_placeholders=API_KEY_HELP,
         )
 
 
@@ -176,3 +172,7 @@ class CannotConnect(HomeAssistantError):
 
 class InvalidAuth(HomeAssistantError):
     """Error to indicate there is invalid auth."""
+
+
+class RateLimited(HomeAssistantError):
+    """Error to indicate the API key is rate limited."""

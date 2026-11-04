@@ -2,7 +2,7 @@
 
 from types import SimpleNamespace
 
-from thermoworks_cloud.models import Alarm, DeviceChannel, Fan
+from custom_components.thermoworks_cloud.api import Alarm, DeviceChannel, Fan
 
 from custom_components.thermoworks_cloud.models import (
     ChannelWithHighAlarm,

@@ -18,9 +18,17 @@ If you have [HACS](https://hacs.xyz/) installed in your Home Assistant instance
 Copy the [custom_components/thermoworks_cloud](custom_components/) folder into the `config/custom_components` folder of your Home Assistant instance
 
 ## Usage
-1. With this custom component installed into your HA instance, you will now see the ThermoWorks Cloud integration available as an integration that can be added (settings > Devices & services > Add Integration)
-1. After adding the integration, you will be required to set the [scan interval](#controlling-the-scan-interval) which will tell HA how often to request new data from ThermoWorks. This can be changed later.  
-    * The default is 1,800 seconds (30 minutes), however this may be too slow for real-time applications like grilling with RFX
+1. In the [ThermoWorks Cloud web app](https://cloud.thermoworks.com/), open **Account Settings → Integrations** and create an API key. You can limit the key to the devices this Home Assistant should see. The key is shown once, so copy it.
+1. With this custom component installed into your HA instance, add the ThermoWorks Cloud integration (Settings > Devices & services > Add Integration) and paste the API key.
+1. The default [scan interval](#controlling-the-scan-interval) is 300 seconds (5 minutes). The minimum is 60 seconds.
+
+### Upgrading from email/password sign-in
+In November 2026 ThermoWorks stopped allowing email/password sign-in for home automation and moved to per-user API keys ([#46](https://github.com/a2hill/ha-thermoworks-cloud/issues/46)). After updating, Home Assistant shows a **Re-authenticate** prompt for the existing ThermoWorks Cloud entry. Enter an API key there. Your devices, entities, entity IDs and history are kept, and the stored email and password are discarded.
+
+ETI Cloud (UK) accounts are not supported by the API-key version.
+
+### Rate limits
+API keys on the free tier allow 4 requests per minute and 3,000 per day; paid plans with API access allow more ([API docs](https://cloud.thermoworks.com/api/docs/)). The integration fetches every device and channel in one request per poll and sends `If-None-Match`, so a 60-second interval uses about 1,440 requests a day. If you run more than one Home Assistant instance, create a separate key for each.
 
 ### Controlling the Scan Interval
 It may be desirable to change the scan interval based on the activity that the devices is being used for. There are two ways to change it:
@@ -34,7 +42,7 @@ It may be desirable to change the scan interval based on the activity that the d
 *  Scan interval is a configuration entity, so Home Assistant does not add it to auto-generated dashboards. You can still add it to a dashboard card yourself.
 
 #### Example: poll faster during a cook
-This automation polls every 15 seconds while an `input_boolean.cook_mode` helper is on and goes back to every 30 minutes when it is turned off. You can use any trigger that suits your setup instead of the helper, such as a probe temperature, a device's **Last Seen** time, or whether your gateway is on the network.
+This automation polls every 60 seconds while an `input_boolean.cook_mode` helper is on and goes back to every 30 minutes when it is turned off. You can use any trigger that suits your setup instead of the helper, such as a probe temperature, a device's **Last Seen** time, or whether your gateway is on the network.
 
 ```yaml
 alias: ThermoWorks - fast polling during a cook
@@ -46,8 +54,8 @@ actions:
     target:
       entity_id: number.thermoworks_cloud_scan_interval
     data:
-      value: "{{ 15 if is_state('input_boolean.cook_mode', 'on') else 1800 }}"
+      value: "{{ 60 if is_state('input_boolean.cook_mode', 'on') else 1800 }}"
 mode: restart
 ```
 ## Also
-To pull data, this integration uses [python-thermoworks-cloud](https://github.com/a2hill/python-thermoworks-cloud)
+This integration reads data from the [ThermoWorks Cloud Integrations API](https://cloud.thermoworks.com/api/docs/). Earlier versions used [python-thermoworks-cloud](https://github.com/a2hill/python-thermoworks-cloud).

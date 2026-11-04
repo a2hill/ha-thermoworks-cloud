@@ -2,27 +2,29 @@
   "config": {
     "step": {
       "user": {
-        "title": "Cloud Provider",
-        "description": "Select which cloud platform your devices are registered with.",
+        "title": "ThermoWorks Cloud API key",
+        "description": "Create an API key in the ThermoWorks Cloud web app ({integrations_url}) under Account → Integrations. You can limit it to the devices this Home Assistant should see. The key is shown once. API docs: {docs_url}",
         "data": {
-          "cloud_provider": "Cloud Provider"
+          "api_key": "API key"
         }
       },
-      "credentials": {
-        "title": "Account Credentials",
+      "reauth_confirm": {
+        "title": "ThermoWorks Cloud needs an API key",
+        "description": "ThermoWorks Cloud no longer accepts email and password sign-in for home automation, or the saved API key was revoked or expired. Create an API key in the ThermoWorks Cloud web app ({integrations_url}) under Account → Integrations and enter it here. Your devices and entities are kept.",
         "data": {
-          "email": "Email",
-          "password": "Password"
+          "api_key": "API key"
         }
       }
     },
     "error": {
       "cannot_connect": "Failed to connect",
-      "invalid_auth": "Invalid authentication",
+      "invalid_api_key": "Invalid API key",
+      "rate_limited": "ThermoWorks Cloud rate limit reached for this key. Wait a minute and try again.",
       "unknown": "Unexpected error"
     },
     "abort": {
-      "already_configured": "Account is already configured"
+      "already_configured": "Account is already configured",
+      "reauth_successful": "Re-authentication was successful"
     }
   },
   "options": {

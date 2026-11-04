@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from types import NoneType
 from typing import Any, Optional, Protocol, Type, TypeGuard, Union, get_args, get_origin, get_type_hints
-from thermoworks_cloud.models import Alarm, Device, DeviceChannel, Fan
+from .api import Alarm, Device, DeviceChannel, Fan
 
 from .exceptions import MissingRequiredAttributeError
 
@@ -80,6 +80,7 @@ class ThermoworksDevice(BaseDevice):
             firmware=device.firmware,
             serial=device.serial,
             battery=device.battery,
+            battery_state=getattr(device, "battery_state", None),
             wifi_strength=device.wifi_strength,
             signal_strength=device.signal_strength,
             fan=getattr(device, "fan", None),

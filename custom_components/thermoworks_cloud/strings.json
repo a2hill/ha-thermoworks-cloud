@@ -2,27 +2,29 @@
   "config": {
     "step": {
       "user": {
-        "title": "Cloud Provider",
-        "description": "Select which cloud platform your devices are registered with.",
+        "title": "ThermoWorks Cloud API key",
+        "description": "Create an API key in the ThermoWorks Cloud web app ({integrations_url}) under Account → Integrations. You can limit it to the devices this Home Assistant should see. The key is shown once. API docs: {docs_url}",
         "data": {
-          "cloud_provider": "Cloud Provider"
+          "api_key": "[%key:common::config_flow::data::api_key%]"
         }
       },
-      "credentials": {
-        "title": "Account Credentials",
+      "reauth_confirm": {
+        "title": "ThermoWorks Cloud needs an API key",
+        "description": "ThermoWorks Cloud no longer accepts email and password sign-in for home automation, or the saved API key was revoked or expired. Create an API key in the ThermoWorks Cloud web app ({integrations_url}) under Account → Integrations and enter it here. Your devices and entities are kept.",
         "data": {
-          "email": "[%key:common::config_flow::data::email%]",
-          "password": "[%key:common::config_flow::data::password%]"
+          "api_key": "[%key:common::config_flow::data::api_key%]"
         }
       }
     },
     "error": {
       "cannot_connect": "[%key:common::config_flow::error::cannot_connect%]",
-      "invalid_auth": "[%key:common::config_flow::error::invalid_auth%]",
+      "invalid_api_key": "[%key:common::config_flow::error::invalid_api_key%]",
+      "rate_limited": "ThermoWorks Cloud rate limit reached for this key. Wait a minute and try again.",
       "unknown": "[%key:common::config_flow::error::unknown%]"
     },
     "abort": {
-      "already_configured": "[%key:common::config_flow::abort::already_configured_account%]"
+      "already_configured": "[%key:common::config_flow::abort::already_configured_account%]",
+      "reauth_successful": "[%key:common::config_flow::abort::reauth_successful%]"
     }
   },
   "entity": {

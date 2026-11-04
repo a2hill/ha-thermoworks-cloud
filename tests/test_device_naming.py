@@ -3,7 +3,7 @@
 from types import SimpleNamespace
 from unittest import TestCase
 
-from thermoworks_cloud.models import Fan
+from custom_components.thermoworks_cloud.api import Fan
 
 from custom_components.thermoworks_cloud.binary_sensor import HighAlarmBinarySensor
 from custom_components.thermoworks_cloud.models import (
