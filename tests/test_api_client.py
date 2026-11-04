@@ -48,7 +48,9 @@ def test_coordinator_keeps_existing_device_and_channel_identifiers():
     )
     coordinator = object.__new__(ThermoworksCoordinator)
     coordinator.client = client
-    result = asyncio.run(coordinator._async_update_api_data())
+    coordinator.provider = PROVIDER_THERMOWORKS
+    coordinator.poll_interval = 60
+    result = asyncio.run(coordinator.async_update_data())
     assert result.devices[0].get_identifier() == "device-1"
     assert result.device_channels["device-1"][0].number == "1"
     assert result.device_channels["device-1"][0].value == 23.0
@@ -64,5 +66,7 @@ def test_coordinator_keeps_existing_device_and_channel_identifiers():
 def test_coordinator_distinguishes_authentication_and_service_errors(error, expected):
     coordinator = object.__new__(ThermoworksCoordinator)
     coordinator.client = SimpleNamespace(get_devices=AsyncMock(side_effect=error))
+    coordinator.provider = PROVIDER_THERMOWORKS
+    coordinator.poll_interval = 60
     with pytest.raises(expected):
-        asyncio.run(coordinator._async_update_api_data())
+        asyncio.run(coordinator.async_update_data())
