@@ -114,7 +114,6 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 1
     _input_data: dict[str, Any]
     _provider: str = PROVIDER_THERMOWORKS
-    _reauth_entry: config_entries.ConfigEntry | None = None
 
     @staticmethod
     @callback
@@ -155,11 +154,6 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors["base"] = "unknown"
 
             if "base" not in errors:
-                if self._reauth_entry is not None:
-                    return self.async_update_reload_and_abort(
-                        self._reauth_entry,
-                        data={**user_input, CONF_CLOUD_PROVIDER: self._provider},
-                    )
                 await self.async_set_unique_id(info.get("user"))
                 self._abort_if_unique_id_configured()
                 entry_data = {
@@ -175,16 +169,13 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_reauth(
         self, entry_data: dict[str, Any]
     ) -> config_entries.ConfigFlowResult:
-        """Handle reauthentication for an existing entry."""
-        self._reauth_entry = self.hass.config_entries.async_get_entry(
-            self.context["entry_id"]
-        )
-        if self._reauth_entry is None:
-            return self.async_abort(reason="reauth_entry_missing")
-        self._provider = entry_data.get(CONF_CLOUD_PROVIDER, PROVIDER_THERMOWORKS)
-        if self._provider == PROVIDER_THERMOWORKS:
-            return await self.async_step_api_key()
-        return await self.async_step_credentials()
+        """Ask for a new API key.
+
+        The coordinator starts this for ThermoWorks entries only: when an API key is rejected,
+        and for entries saved with a password before API keys existed. Firebase providers never
+        start it, so a password is never asked for here.
+        """
+        return await self.async_step_api_key()
 
     async def async_step_api_key(
         self, user_input: dict[str, Any] | None = None
@@ -207,8 +198,13 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     **user_input,
                     CONF_CLOUD_PROVIDER: PROVIDER_THERMOWORKS,
                 }
-                if self._reauth_entry is not None:
-                    return self.async_update_reload_and_abort(self._reauth_entry, data=data)
+                if self.source == config_entries.SOURCE_REAUTH:
+                    # This replaces all saved data, so a migrated entry loses its old password.
+                    # The unique id is not compared, because entries saved with a password use
+                    # a Firebase user id that an API key can't be matched against.
+                    return self.async_update_reload_and_abort(
+                        self._get_reauth_entry(), data=data
+                    )
                 await self.async_set_unique_id(info["user"])
                 self._abort_if_unique_id_configured()
                 return self.async_create_entry(title=info["title"], data=data)

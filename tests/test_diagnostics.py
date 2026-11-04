@@ -80,8 +80,13 @@ async def test_diagnostics_keep_what_is_needed_to_support_a_device(
     # Assert
     device, gateway = diagnostics["devices_response"]["devices"]
     expected = response["devices"][0]
-    assert device["id"] == device["serial"]
-    assert device["unknownGatewayField"] == gateway["id"]
+    # Device ids and serials are replaced by placeholders, so these are not the real values.
+    # What survives is whether two values matched, including references between devices.
+    assert device["id"] == "device-0"
+    assert device["serial"] == "device-0"
+    assert gateway["id"] == "device-1"
+    assert device["unknownGatewayField"] == "device-1"
+    # Channel ids are only numbers like "1", so unlike device ids they are kept as they are
     assert device["model"] == expected["model"]
     assert device["channels"][0]["id"] == expected["channels"][0]["id"]
     assert device["channels"][0]["value"] == expected["channels"][0]["value"]

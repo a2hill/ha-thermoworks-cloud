@@ -262,6 +262,24 @@ async def test_existing_password_user_recovers_with_a_key(
     assert hass.states.get(TEMPERATURE_ENTITY) is not None
 
 
+async def test_removing_an_entry_ends_its_prompt(
+    hass: HomeAssistant, api_test_object: ApiTestObject
+) -> None:
+    """Test that a prompt for a key can't outlive the entry it belongs to."""
+
+    # Setup
+    entry = _password_entry(hass)
+    await _set_up(hass, entry)
+    assert len(_reauth_flows(hass)) == 1
+
+    # Act
+    await hass.config_entries.async_remove(entry.entry_id)
+    await hass.async_block_till_done()
+
+    # Assert
+    assert not _reauth_flows(hass)
+
+
 async def test_eti_entry_is_not_asked_for_a_key(
     hass: HomeAssistant, api_test_object: ApiTestObject, aioclient_mock
 ) -> None:

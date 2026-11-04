@@ -30,8 +30,7 @@
     },
     "abort": {
       "already_configured": "Account is already configured",
-      "reauth_successful": "Re-authentication was successful",
-      "reauth_entry_missing": "The configuration entry to reauthenticate no longer exists"
+      "reauth_successful": "Re-authentication was successful"
     }
   },
   "options": {
