@@ -1,43 +1,45 @@
+# Creates a tag and GitHub release whenever a new version lands on main, so that merging a version
+# bump PR is the whole release. The version in manifest.json is the source of truth: a release is
+# due when that version has no tag yet.
 name: Release
 
 on:
-  push:
+  # Run after the Tests workflow instead of repeating it, so a release can only come from a commit
+  # that passed. GitHub always uses the copy of this file on main for this trigger.
+  workflow_run:
+    workflows: [Tests]
+    types: [completed]
     branches: [main]
-    paths:
-      - custom_components/thermoworks_cloud/manifest.json
 
 permissions:
   contents: write
 
 jobs:
   release:
+    # Tests also runs for pull requests, and `branches` only compares the branch name, so a fork's
+    # main branch would match it. Checking for a push means only commits on our main are released.
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push'
     runs-on: ubuntu-latest
     steps:
+      # workflow_run starts on the latest commit of main, which may be newer than the one that was
+      # tested, so check out and release exactly the tested commit.
       - uses: actions/checkout@v4
-      - name: Check for a new version
-        id: version
-        run: |
-          version="$(jq -r .version custom_components/thermoworks_cloud/manifest.json)"
-          echo "tag=v$version" >> "$GITHUB_OUTPUT"
-          if git ls-remote --exit-code --tags origin "refs/tags/v$version"; then
-            echo "new=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "new=true" >> "$GITHUB_OUTPUT"
-          fi
-      - uses: actions/setup-python@v5
-        if: steps.version.outputs.new == 'true'
         with:
-          python-version: "3.14"
-          cache: pip
-      - name: Install dependencies
-        if: steps.version.outputs.new == 'true'
-        run: python -m pip install -r requirements.txt pytest
-      - name: Run tests
-        if: steps.version.outputs.new == 'true'
-        run: python -m pytest -q
-      - name: Create release
-        if: steps.version.outputs.new == 'true'
+          ref: ${{ github.event.workflow_run.head_sha }}
+      - name: Release the manifest version if it is new
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.version.outputs.tag }}
-        run: gh release create "$TAG" --target "$GITHUB_SHA" --generate-notes
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          tag="v$(jq -r .version custom_components/thermoworks_cloud/manifest.json)"
+
+          # This runs for every commit on main, and most of them do not change the version.
+          if git ls-remote --exit-code --tags origin "refs/tags/$tag"; then
+            echo "$tag already exists, nothing to release"
+            exit 0
+          fi
+
+          # Notes are generated from the merged PRs. Edit the release afterwards if it needs more.
+          gh release create "$tag" --target "$HEAD_SHA" --generate-notes
