@@ -1,0 +1,44 @@
+# Creates a GitHub release when a version tag is pushed. To release, merge a PR that bumps the
+# version in manifest.json, wait for Tests to pass on main, then tag that commit with the same
+# version identifier
+name: Release
+
+on:
+  push:
+    tags:
+      # Must be the whole tag, so v1.2, v1.2.3-beta and other tags do not create a release.
+      - "v[0-9]+.[0-9]+.[0-9]+"
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read # To look up the Tests runs for this commit
+      contents: write # To create the release
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check for passing Tests
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Find the result of the Tests action which ran when this commit was pushed to main.
+          passed="$(gh run list --workflow tests.yml --commit "$GITHUB_SHA" --event push \
+            --status success --limit 1 --json databaseId --jq length)"
+          if [ "$passed" = "0" ]; then
+            echo "::error::Tests has not passed for $GITHUB_SHA"
+            exit 1
+          fi
+      - name: Confirm tag version matches manifest version
+        run: |
+          # HACS shows the release tag, while Home Assistant reports the manifest version. 
+          # Fail if the two disagree.
+          manifest_tag="v$(jq -r .version custom_components/thermoworks_cloud/manifest.json)"
+          if [ "$GITHUB_REF_NAME" != "$manifest_tag" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match manifest version $manifest_tag"
+            exit 1
+          fi
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        # Generate release notes from the merged PRs, can be edited after
+        run: gh release create "$GITHUB_REF_NAME" --generate-notes
