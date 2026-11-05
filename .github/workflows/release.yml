@@ -1,28 +1,33 @@
 # Creates a GitHub release when a version tag is pushed. To release, merge a PR that bumps the
-# version in manifest.json, then tag the merge commit with that version, such as v0.2.1.
+# version in manifest.json, wait for Tests to pass on main, then tag that commit, such as v0.2.1.
 name: Release
 
 on:
   push:
     tags:
-      - "v*"
+      # Must be the whole tag, so v1.2, v1.2.3-beta and other tags do not create a release.
+      - "v[0-9]+.[0-9]+.[0-9]+"
 
 jobs:
-  # A release must never come from a commit that failed its tests. This uses the Tests workflow
-  # itself so the two cannot drift apart. Tests also starts its own run for the tag, and a workflow
-  # triggered by a push cannot wait on that run, so the tests run twice for each release.
-  tests:
-    uses: ./.github/workflows/tests.yml
-    permissions:
-      contents: read
-
   release:
-    needs: tests
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      actions: read # To look up the Tests runs for this commit
+      contents: write # To create the release
     steps:
       - uses: actions/checkout@v4
+      - name: Check the commit passed Tests
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Tests already ran when this commit was pushed to main, so use that result instead of
+          # running them again. If the tag beat them, re-run this job once they have passed.
+          passed="$(gh run list --workflow tests.yml --commit "$GITHUB_SHA" --event push \
+            --status success --limit 1 --json databaseId --jq length)"
+          if [ "$passed" = "0" ]; then
+            echo "::error::Tests has not passed for $GITHUB_SHA"
+            exit 1
+          fi
       - name: Check the tag matches the manifest version
         run: |
           # HACS shows the release tag, while Home Assistant reports the manifest version. Fail
@@ -36,4 +41,4 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         # Notes are generated from the merged PRs. Edit the release afterwards if it needs more.
-        run: gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes
+        run: gh release create "$GITHUB_REF_NAME" --generate-notes
