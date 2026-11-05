@@ -2,12 +2,16 @@
 
 from datetime import timedelta
 from unittest.mock import patch
+from typing import Any
+
+import pytest
 
 from homeassistant.config_entries import SOURCE_USER, ConfigEntryState
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD, CONF_SCAN_INTERVAL
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import entity_registry as er
 from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
 from pytest_homeassistant_custom_component.common import (
@@ -25,6 +29,15 @@ from custom_components.thermoworks_cloud.const import (
 )
 from tests.api_test_object import (
     GET_DEVICES_RESPONSE,
+    GET_DEVICES_NO_PROBE_RESPONSE,
+    GET_DEVICES_FAILED_PROBE_RESPONSE,
+    GET_DEVICES_NULL_READING_RESPONSE,
+    GET_DEVICES_NULL_UNITS_RESPONSE,
+    GET_DEVICES_NO_CHANNELS_RESPONSE,
+    GET_DEVICES_DISABLED_CHANNEL_RESPONSE,
+    GET_DEVICES_UNKNOWN_CHANNEL_METADATA_RESPONSE,
+    GET_DEVICES_DISTINCT_CHANNEL_ID_RESPONSE,
+    GET_DEVICES_LOW_ALARM_RESPONSE,
     TEST_ACCOUNT_ID,
     TEST_API_KEY,
     TEST_ETAG,
@@ -33,6 +46,9 @@ from tests.api_test_object import (
 )
 
 TEMPERATURE_ENTITY = "sensor.12_34_56_78_90_ab_ch_1_temperature"
+HIGH_THRESHOLD_ENTITY = "sensor.12_34_56_78_90_ab_ch_1_high_alarm_threshold"
+HIGH_ALARM_ENTITY = "binary_sensor.12_34_56_78_90_ab_ch_1_high_alarm"
+LOW_ALARM_ENTITY = "binary_sensor.12_34_56_78_90_ab_ch_1_low_alarm"
 
 
 def _api_key_entry(hass: HomeAssistant) -> MockConfigEntry:
@@ -156,6 +172,7 @@ async def test_unchanged_devices_keep_their_values(
     after = hass.states.get(TEMPERATURE_ENTITY)
     assert after is not None
     assert after.state == before.state
+    assert after.attributes["last_telemetry_saved"] == before.attributes["last_telemetry_saved"]
 
 
 async def test_rate_limit_makes_sensors_unavailable(
@@ -434,3 +451,239 @@ async def test_setup_when_the_service_fails_shows_an_error(
     # Assert
     assert result["type"] is FlowResultType.FORM
     assert result["errors"] == {"base": "cannot_connect"}
+
+
+async def test_reading_exposes_source_metadata(
+    hass: HomeAssistant, api_test_object: ApiTestObject
+) -> None:
+    """Keep the source measurement timestamp distinguishable from HA's poll time."""
+
+    # Setup
+    entry = _api_key_entry(hass)
+    expected = GET_DEVICES_RESPONSE["devices"][0]["channels"][0]
+
+    # Act
+    await _set_up(hass, entry)
+
+    # Assert
+    state = hass.states.get(TEMPERATURE_ENTITY)
+    assert state is not None
+    assert state.attributes["channel_id"] == expected["id"]
+    assert state.attributes["enabled"] == expected["enabled"]
+    assert state.attributes["probe_failed"] == expected["probeFailed"]
+    assert state.attributes["alarming"] == expected["alarming"]
+    assert state.attributes["status"] == expected["status"]
+    assert dt_util.parse_datetime(state.attributes["last_telemetry_saved"]) == (
+        dt_util.parse_datetime(expected["lastTelemetrySaved"])
+    )
+    assert dt_util.parse_datetime(state.attributes["last_seen"]) == (
+        dt_util.parse_datetime(expected["lastSeen"])
+    )
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        pytest.param(GET_DEVICES_NO_PROBE_RESPONSE, id="no-probe"),
+        pytest.param(GET_DEVICES_FAILED_PROBE_RESPONSE, id="probe-failed"),
+        pytest.param(GET_DEVICES_NULL_READING_RESPONSE, id="null-reading"),
+        pytest.param(GET_DEVICES_DISABLED_CHANNEL_RESPONSE, id="disabled"),
+    ],
+)
+async def test_failed_channel_becomes_unavailable_and_recovers(
+    hass: HomeAssistant, api_test_object: ApiTestObject, response: dict[str, Any]
+) -> None:
+    """Explicit channel failures hide readings and active alarms without deleting entities."""
+
+    # Setup
+    hass.config.units = US_CUSTOMARY_SYSTEM
+    entry = _api_key_entry(hass)
+    await _set_up(hass, entry)
+    registry = er.async_get(hass)
+    before = registry.async_get(TEMPERATURE_ENTITY)
+    assert before is not None
+    unique_id = before.unique_id
+    api_test_object.respond_to_devices(body=response)
+
+    # Act
+    await _poll(hass)
+
+    # Assert
+    state = hass.states.get(TEMPERATURE_ENTITY)
+    assert state is not None
+    assert state.state == "unavailable"
+    alarm = hass.states.get(HIGH_ALARM_ENTITY)
+    assert alarm is not None
+    assert alarm.state == "unavailable"
+    threshold = hass.states.get(HIGH_THRESHOLD_ENTITY)
+    assert threshold is not None
+    assert float(threshold.state) == response["devices"][0]["channels"][0]["alarmHigh"]["value"]
+
+    # Recover using the same entities and identifiers.
+    api_test_object.respond_to_devices(body=GET_DEVICES_RESPONSE)
+    await _poll(hass, DEFAULT_SCAN_INTERVAL_SECONDS * 2)
+    recovered = hass.states.get(TEMPERATURE_ENTITY)
+    assert recovered is not None
+    assert float(recovered.state) == GET_DEVICES_RESPONSE["devices"][0]["channels"][0]["value"]
+    after = registry.async_get(TEMPERATURE_ENTITY)
+    assert after is not None
+    assert after.unique_id == unique_id
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        pytest.param(GET_DEVICES_NULL_UNITS_RESPONSE, id="null-units"),
+        pytest.param(GET_DEVICES_NO_CHANNELS_RESPONSE, id="channel-removed"),
+    ],
+)
+async def test_missing_channel_becomes_unavailable_and_recovers(
+    hass: HomeAssistant,
+    api_test_object: ApiTestObject,
+    caplog: pytest.LogCaptureFixture,
+    response: dict[str, Any],
+) -> None:
+    """A channel the integration cannot read must not keep showing its last data."""
+
+    # Setup
+    hass.config.units = US_CUSTOMARY_SYSTEM
+    entry = _api_key_entry(hass)
+    await _set_up(hass, entry)
+    api_test_object.respond_to_devices(body=response)
+
+    # Act
+    await _poll(hass)
+
+    # Assert
+    for entity_id in (TEMPERATURE_ENTITY, HIGH_ALARM_ENTITY, HIGH_THRESHOLD_ENTITY):
+        state = hass.states.get(entity_id)
+        assert state is not None
+        assert state.state == "unavailable"
+    assert "Unexpected error updating listener" not in caplog.text
+
+    # Recover using the same entities.
+    api_test_object.respond_to_devices(body=GET_DEVICES_RESPONSE)
+    await _poll(hass, DEFAULT_SCAN_INTERVAL_SECONDS * 2)
+    recovered = hass.states.get(TEMPERATURE_ENTITY)
+    assert recovered is not None
+    assert float(recovered.state) == GET_DEVICES_RESPONSE["devices"][0]["channels"][0]["value"]
+
+
+async def test_channel_last_seen_is_not_recorded(
+    hass: HomeAssistant, api_test_object: ApiTestObject
+) -> None:
+    """Keep the measurement timestamp in history without storing every device contact."""
+
+    # Setup
+    entry = _api_key_entry(hass)
+
+    # Act
+    await _set_up(hass, entry)
+
+    # Assert
+    state = hass.states.get(TEMPERATURE_ENTITY)
+    assert state is not None
+    assert state.attributes["last_seen"] is not None
+    assert state.state_info is not None
+    unrecorded = state.state_info["unrecorded_attributes"]
+    assert "last_seen" in unrecorded
+    assert "last_telemetry_saved" not in unrecorded
+
+
+async def test_initial_null_reading_still_creates_entities(
+    hass: HomeAssistant, api_test_object: ApiTestObject
+) -> None:
+    """A null reading must not prevent discovery or recovery of a known channel."""
+
+    # Setup
+    hass.config.units = US_CUSTOMARY_SYSTEM
+    entry = _api_key_entry(hass)
+    api_test_object.respond_to_devices(body=GET_DEVICES_NULL_READING_RESPONSE)
+
+    # Act
+    await _set_up(hass, entry)
+
+    # Assert
+    state = hass.states.get(TEMPERATURE_ENTITY)
+    assert state is not None
+    assert state.state == "unavailable"
+    threshold = hass.states.get(HIGH_THRESHOLD_ENTITY)
+    assert threshold is not None
+    assert float(threshold.state) == (
+        GET_DEVICES_NULL_READING_RESPONSE["devices"][0]["channels"][0]["alarmHigh"]["value"]
+    )
+
+
+async def test_low_alarm_is_a_valid_reading(
+    hass: HomeAssistant, api_test_object: ApiTestObject
+) -> None:
+    """An out-of-range measurement is distinct from an unavailable measurement."""
+
+    # Setup
+    hass.config.units = US_CUSTOMARY_SYSTEM
+    entry = _api_key_entry(hass)
+    api_test_object.respond_to_devices(body=GET_DEVICES_LOW_ALARM_RESPONSE)
+    expected = GET_DEVICES_LOW_ALARM_RESPONSE["devices"][0]["channels"][0]
+
+    # Act
+    await _set_up(hass, entry)
+
+    # Assert
+    state = hass.states.get(TEMPERATURE_ENTITY)
+    assert state is not None
+    assert float(state.state) == expected["value"]
+    alarm = hass.states.get(LOW_ALARM_ENTITY)
+    assert alarm is not None
+    assert alarm.state == "on"
+
+
+async def test_unknown_metadata_does_not_mark_a_channel_failed(
+    hass: HomeAssistant, api_test_object: ApiTestObject
+) -> None:
+    """Missing metadata is unknown rather than an explicit probe failure."""
+
+    # Setup
+    hass.config.units = US_CUSTOMARY_SYSTEM
+    entry = _api_key_entry(hass)
+    api_test_object.respond_to_devices(body=GET_DEVICES_UNKNOWN_CHANNEL_METADATA_RESPONSE)
+
+    # Act
+    await _set_up(hass, entry)
+
+    # Assert
+    state = hass.states.get(TEMPERATURE_ENTITY)
+    assert state is not None
+    assert float(state.state) == (
+        GET_DEVICES_UNKNOWN_CHANNEL_METADATA_RESPONSE["devices"][0]["channels"][0]["value"]
+    )
+    assert state.attributes["enabled"] is None
+    assert state.attributes["probe_failed"] is None
+    assert state.attributes["last_telemetry_saved"] is None
+
+
+async def test_channel_api_id_does_not_replace_entity_identity(
+    hass: HomeAssistant, api_test_object: ApiTestObject
+) -> None:
+    """Expose the API id while retaining channel-number-based entity identifiers."""
+
+    # Setup
+    entry = _api_key_entry(hass)
+    await _set_up(hass, entry)
+    registry = er.async_get(hass)
+    before = registry.async_get(TEMPERATURE_ENTITY)
+    assert before is not None
+    unique_id = before.unique_id
+    api_test_object.respond_to_devices(body=GET_DEVICES_DISTINCT_CHANNEL_ID_RESPONSE)
+
+    # Act
+    await _poll(hass)
+
+    # Assert
+    state = hass.states.get(TEMPERATURE_ENTITY)
+    assert state is not None
+    assert state.attributes["channel_id"] == (
+        GET_DEVICES_DISTINCT_CHANNEL_ID_RESPONSE["devices"][0]["channels"][0]["id"]
+    )
+    after = registry.async_get(TEMPERATURE_ENTITY)
+    assert after is not None
+    assert after.unique_id == unique_id

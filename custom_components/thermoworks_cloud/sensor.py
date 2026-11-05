@@ -443,6 +443,9 @@ class ChannelSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_has_entity_name = True
 
+    # Changes on device contact without a new measurement, which would bloat the recorder
+    _unrecorded_attributes = frozenset({"last_seen"})
+
     # API data is given at higher precision, but that isn't needed
     # https://developers.home-assistant.io/docs/core/entity/sensor#properties
     _attr_suggested_display_precision = 1
@@ -461,6 +464,13 @@ class ChannelSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
         self._device_channel = device_channel
         self._device_serial = device_serial
 
+    @property
+    def available(self) -> bool:
+        """Do not present the last known data of a channel the API no longer provides."""
+        return super().available and self.coordinator.get_device_channel_by_id(
+            device_id=self._device_serial, channel_id=self._device_channel.number
+        ) is not None
+
     @callback
     def _handle_coordinator_update(self) -> None:
         """Update sensor with latest data from coordinator."""
@@ -468,11 +478,8 @@ class ChannelSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
         device_channel = self.coordinator.get_device_channel_by_id(
             device_id=self._device_serial, channel_id=self._device_channel.number
         )
-        if not device_channel:
-            raise UpdateFailed(
-                f"Cannot update sensor {self.name}: device channel {self._device_channel.display_name()} "
-                "is not found")
-        self._device_channel = device_channel
+        if device_channel:
+            self._device_channel = device_channel
         self.async_write_ha_state()
 
     @property
@@ -503,11 +510,28 @@ class ChannelSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
         return {"channel_name": self._device_channel.display_name()}
 
     @property
-    def native_value(self) -> int | float:
+    def extra_state_attributes(self) -> dict[str, str | bool | None]:
+        """Expose source metadata separately from Home Assistant's state update time."""
+        channel = self._device_channel
+        return {
+            "channel_id": channel.id,
+            "status": channel.status,
+            "enabled": channel.enabled,
+            "probe_failed": channel.probe_failed,
+            "alarming": channel.alarming,
+            "last_telemetry_saved": (
+                channel.last_telemetry_saved.isoformat() if channel.last_telemetry_saved else None
+            ),
+            "last_seen": channel.last_seen.isoformat() if channel.last_seen else None,
+        }
+
+    @property
+    def native_value(self) -> float | None:
         """Return the state of the entity."""
         # Using native value and native unit of measurement, allows you to change units
         # in Lovelace and HA will automatically calculate the correct value.
-        return float(self._device_channel.value)
+        value = self._device_channel.value
+        return float(value) if value is not None else None
 
 
     @property
@@ -530,6 +554,11 @@ class TemperatureSensor(ChannelSensor):
     # https://developers.home-assistant.io/docs/core/entity#entity-naming
     # https://developers.home-assistant.io/docs/internationalization/core/#name-of-entities
     _attr_translation_key = "temperature"
+
+    @property
+    def available(self) -> bool:
+        """Return whether the channel reports a usable measurement."""
+        return super().available and self._device_channel.has_valid_reading
 
     @property
     def native_unit_of_measurement(self) -> str:
@@ -559,6 +588,11 @@ class HumiditySensor(ChannelSensor):
     # API data is in percent
     # https://developers.home-assistant.io/docs/core/entity/sensor#properties
     _attr_native_unit_of_measurement = PERCENTAGE
+
+    @property
+    def available(self) -> bool:
+        """Return whether the channel reports a usable measurement."""
+        return super().available and self._device_channel.has_valid_reading
 
 
 class AlarmThresholdSensor(ChannelSensor):

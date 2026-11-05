@@ -159,18 +159,25 @@ class AlarmBinarySensor(
         self._device_serial = device_serial
         self._device_channel = device_channel
 
+    @property
+    def available(self) -> bool:
+        """Do not present a channel's old alarm evaluation as a current alarm state."""
+        return (
+            super().available
+            and self.coordinator.get_device_channel_by_id(
+                device_id=self._device_serial, channel_id=self._device_channel.number
+            ) is not None
+            and self._device_channel.has_valid_reading
+        )
+
     @callback
     def _handle_coordinator_update(self) -> None:
         """Update sensor with latest data from coordinator."""
         device_channel = self.coordinator.get_device_channel_by_id(
             device_id=self._device_serial, channel_id=self._device_channel.number
         )
-        if not device_channel:
-            raise UpdateFailed(
-                f"Cannot update sensor {self.name}: device channel {self._device_channel.display_name()} "
-                "is not found"
-            )
-        self._device_channel = device_channel
+        if device_channel:
+            self._device_channel = device_channel
         self.async_write_ha_state()
 
     @property
