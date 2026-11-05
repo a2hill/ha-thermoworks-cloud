@@ -1,5 +1,6 @@
 # Creates a GitHub release when a version tag is pushed. To release, merge a PR that bumps the
-# version in manifest.json, wait for Tests to pass on main, then tag that commit, such as v0.2.1.
+# version in manifest.json, wait for Tests to pass on main, then tag that commit with the same
+# version identifier
 name: Release
 
 on:
@@ -16,22 +17,21 @@ jobs:
       contents: write # To create the release
     steps:
       - uses: actions/checkout@v4
-      - name: Check the commit passed Tests
+      - name: Check for passing Tests
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # Tests already ran when this commit was pushed to main, so use that result instead of
-          # running them again. If the tag beat them, re-run this job once they have passed.
+          # Find the result of the Tests action which ran when this commit was pushed to main.
           passed="$(gh run list --workflow tests.yml --commit "$GITHUB_SHA" --event push \
             --status success --limit 1 --json databaseId --jq length)"
           if [ "$passed" = "0" ]; then
             echo "::error::Tests has not passed for $GITHUB_SHA"
             exit 1
           fi
-      - name: Check the tag matches the manifest version
+      - name: Confirm tag version matches manifest version
         run: |
-          # HACS shows the release tag, while Home Assistant reports the manifest version. Fail
-          # here rather than publish a release where the two disagree.
+          # HACS shows the release tag, while Home Assistant reports the manifest version. 
+          # Fail if the two disagree.
           manifest_tag="v$(jq -r .version custom_components/thermoworks_cloud/manifest.json)"
           if [ "$GITHUB_REF_NAME" != "$manifest_tag" ]; then
             echo "::error::Tag $GITHUB_REF_NAME does not match manifest version $manifest_tag"
@@ -40,5 +40,5 @@ jobs:
       - name: Create the release
         env:
           GH_TOKEN: ${{ github.token }}
-        # Notes are generated from the merged PRs. Edit the release afterwards if it needs more.
+        # Generate release notes from the merged PRs, can be edited after
         run: gh release create "$GITHUB_REF_NAME" --generate-notes
