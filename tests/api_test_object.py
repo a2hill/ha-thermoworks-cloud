@@ -1,9 +1,11 @@
 """Provides a local stand-in for the ThermoWorks API."""
 
+from copy import deepcopy
 from typing import Any
 
 from aiohttp import web
 from aiohttp.test_utils import TestServer
+from thermoworks_cloud.models import ChannelStatus
 
 TEST_API_KEY = "twk_test_key_id_test_secret"
 TEST_ACCOUNT_ID = "test-account-id"
@@ -60,6 +62,35 @@ GET_DEVICES_RESPONSE: dict[str, Any] = {
         }
     ],
 }
+
+
+# Derived examples for channel-health behavior; not additional live captures.
+# NO PROBE values come from the excerpt in issue #46, with representative surrounding data.
+GET_DEVICES_NO_PROBE_RESPONSE = deepcopy(GET_DEVICES_RESPONSE)
+GET_DEVICES_NO_PROBE_RESPONSE["devices"][0]["channels"][0].update({
+    "status": ChannelStatus.NO_PROBE.value,
+    "value": 76.8,
+    "lastTelemetrySaved": "2026-09-09T12:49:36.000Z",
+})
+GET_DEVICES_FAILED_PROBE_RESPONSE = deepcopy(GET_DEVICES_RESPONSE)
+GET_DEVICES_FAILED_PROBE_RESPONSE["devices"][0]["channels"][0].update({
+    "probeFailed": True,
+    "value": None,
+})
+GET_DEVICES_DISABLED_CHANNEL_RESPONSE = deepcopy(GET_DEVICES_RESPONSE)
+GET_DEVICES_DISABLED_CHANNEL_RESPONSE["devices"][0]["channels"][0]["enabled"] = False
+GET_DEVICES_UNKNOWN_CHANNEL_METADATA_RESPONSE = deepcopy(GET_DEVICES_RESPONSE)
+for _field in ("enabled", "probeFailed", "alarming", "lastTelemetrySaved", "lastSeen"):
+    del GET_DEVICES_UNKNOWN_CHANNEL_METADATA_RESPONSE["devices"][0]["channels"][0][_field]
+GET_DEVICES_DISTINCT_CHANNEL_ID_RESPONSE = deepcopy(GET_DEVICES_RESPONSE)
+GET_DEVICES_DISTINCT_CHANNEL_ID_RESPONSE["devices"][0]["channels"][0]["id"] = "opaque-channel-id"
+GET_DEVICES_LOW_ALARM_RESPONSE = deepcopy(GET_DEVICES_RESPONSE)
+GET_DEVICES_LOW_ALARM_RESPONSE["devices"][0]["channels"][0].update({
+    "status": ChannelStatus.LOW.value,
+    "value": -13,
+    "alarming": True,
+})
+GET_DEVICES_LOW_ALARM_RESPONSE["devices"][0]["channels"][0]["alarmLow"]["alarming"] = True
 
 
 class ApiTestObject:

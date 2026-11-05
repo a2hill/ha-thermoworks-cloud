@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from types import NoneType
 from typing import Any, Optional, Protocol, Type, TypeGuard, Union, get_args, get_origin, get_type_hints
-from thermoworks_cloud.models import Alarm, Device, DeviceChannel, Fan
+from thermoworks_cloud.models import Alarm, ChannelStatus, Device, DeviceChannel, Fan
 
 from .exceptions import MissingRequiredAttributeError
 
@@ -152,12 +152,18 @@ class ThermoworksChannel:
     """Represents a Thermoworks device channel with required properties for this integration."""
 
     number: str
-    value: float
+    value: Optional[float]
     units: str
     status: Optional[str]
     label: Optional[str]
     alarm_high: Optional[Alarm] = None
     alarm_low: Optional[Alarm] = None
+    id: Optional[str] = None
+    enabled: Optional[bool] = None
+    probe_failed: Optional[bool] = None
+    alarming: Optional[bool] = None
+    last_telemetry_saved: Optional[datetime] = None
+    last_seen: Optional[datetime] = None
 
     @classmethod
     def is_thermoworks_channel(cls, obj: Any) -> TypeGuard["ThermoworksChannel"]:
@@ -180,6 +186,22 @@ class ThermoworksChannel:
             label=channel.label,
             alarm_high=getattr(channel, "alarm_high", None),
             alarm_low=getattr(channel, "alarm_low", None),
+            id=channel.id,
+            enabled=channel.enabled,
+            probe_failed=channel.probe_failed,
+            alarming=channel.alarming,
+            last_telemetry_saved=channel.last_telemetry_saved,
+            last_seen=channel.last_seen,
+        )
+
+    @property
+    def has_valid_reading(self) -> bool:
+        """Reject explicit channel failures without treating unknown metadata as failure."""
+        return (
+            self.value is not None
+            and self.enabled is not False
+            and self.probe_failed is not True
+            and self.status != ChannelStatus.NO_PROBE
         )
 
     def display_name(self) -> str:

@@ -159,6 +159,11 @@ class AlarmBinarySensor(
         self._device_serial = device_serial
         self._device_channel = device_channel
 
+    @property
+    def available(self) -> bool:
+        """Do not present a channel's old alarm evaluation as a current alarm state."""
+        return super().available and self._device_channel.has_valid_reading
+
     @callback
     def _handle_coordinator_update(self) -> None:
         """Update sensor with latest data from coordinator."""
