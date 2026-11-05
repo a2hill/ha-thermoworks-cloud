@@ -443,6 +443,9 @@ class ChannelSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_has_entity_name = True
 
+    # Changes on device contact without a new measurement, which would bloat the recorder
+    _unrecorded_attributes = frozenset({"last_seen"})
+
     # API data is given at higher precision, but that isn't needed
     # https://developers.home-assistant.io/docs/core/entity/sensor#properties
     _attr_suggested_display_precision = 1
@@ -461,6 +464,13 @@ class ChannelSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
         self._device_channel = device_channel
         self._device_serial = device_serial
 
+    @property
+    def available(self) -> bool:
+        """Do not present the last known data of a channel the API no longer provides."""
+        return super().available and self.coordinator.get_device_channel_by_id(
+            device_id=self._device_serial, channel_id=self._device_channel.number
+        ) is not None
+
     @callback
     def _handle_coordinator_update(self) -> None:
         """Update sensor with latest data from coordinator."""
@@ -468,11 +478,8 @@ class ChannelSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
         device_channel = self.coordinator.get_device_channel_by_id(
             device_id=self._device_serial, channel_id=self._device_channel.number
         )
-        if not device_channel:
-            raise UpdateFailed(
-                f"Cannot update sensor {self.name}: device channel {self._device_channel.display_name()} "
-                "is not found")
-        self._device_channel = device_channel
+        if device_channel:
+            self._device_channel = device_channel
         self.async_write_ha_state()
 
     @property

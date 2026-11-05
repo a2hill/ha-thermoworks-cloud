@@ -73,10 +73,16 @@ GET_DEVICES_NO_PROBE_RESPONSE["devices"][0]["channels"][0].update({
     "lastTelemetrySaved": "2026-09-09T12:49:36.000Z",
 })
 GET_DEVICES_FAILED_PROBE_RESPONSE = deepcopy(GET_DEVICES_RESPONSE)
-GET_DEVICES_FAILED_PROBE_RESPONSE["devices"][0]["channels"][0].update({
-    "probeFailed": True,
-    "value": None,
+GET_DEVICES_FAILED_PROBE_RESPONSE["devices"][0]["channels"][0]["probeFailed"] = True
+GET_DEVICES_NULL_READING_RESPONSE = deepcopy(GET_DEVICES_RESPONSE)
+GET_DEVICES_NULL_READING_RESPONSE["devices"][0]["channels"][0]["value"] = None
+GET_DEVICES_NULL_UNITS_RESPONSE = deepcopy(GET_DEVICES_RESPONSE)
+GET_DEVICES_NULL_UNITS_RESPONSE["devices"][0]["channels"][0].update({
+    "status": ChannelStatus.NO_PROBE.value,
+    "units": None,
 })
+GET_DEVICES_NO_CHANNELS_RESPONSE = deepcopy(GET_DEVICES_RESPONSE)
+GET_DEVICES_NO_CHANNELS_RESPONSE["devices"][0]["channels"] = []
 GET_DEVICES_DISABLED_CHANNEL_RESPONSE = deepcopy(GET_DEVICES_RESPONSE)
 GET_DEVICES_DISABLED_CHANNEL_RESPONSE["devices"][0]["channels"][0]["enabled"] = False
 GET_DEVICES_UNKNOWN_CHANNEL_METADATA_RESPONSE = deepcopy(GET_DEVICES_RESPONSE)

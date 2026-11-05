@@ -31,6 +31,9 @@ from tests.api_test_object import (
     GET_DEVICES_RESPONSE,
     GET_DEVICES_NO_PROBE_RESPONSE,
     GET_DEVICES_FAILED_PROBE_RESPONSE,
+    GET_DEVICES_NULL_READING_RESPONSE,
+    GET_DEVICES_NULL_UNITS_RESPONSE,
+    GET_DEVICES_NO_CHANNELS_RESPONSE,
     GET_DEVICES_DISABLED_CHANNEL_RESPONSE,
     GET_DEVICES_UNKNOWN_CHANNEL_METADATA_RESPONSE,
     GET_DEVICES_DISTINCT_CHANNEL_ID_RESPONSE,
@@ -483,6 +486,7 @@ async def test_reading_exposes_source_metadata(
     [
         pytest.param(GET_DEVICES_NO_PROBE_RESPONSE, id="no-probe"),
         pytest.param(GET_DEVICES_FAILED_PROBE_RESPONSE, id="probe-failed"),
+        pytest.param(GET_DEVICES_NULL_READING_RESPONSE, id="null-reading"),
         pytest.param(GET_DEVICES_DISABLED_CHANNEL_RESPONSE, id="disabled"),
     ],
 )
@@ -526,7 +530,67 @@ async def test_failed_channel_becomes_unavailable_and_recovers(
     assert after.unique_id == unique_id
 
 
-async def test_initial_failed_probe_with_no_value_still_creates_entities(
+@pytest.mark.parametrize(
+    "response",
+    [
+        pytest.param(GET_DEVICES_NULL_UNITS_RESPONSE, id="null-units"),
+        pytest.param(GET_DEVICES_NO_CHANNELS_RESPONSE, id="channel-removed"),
+    ],
+)
+async def test_missing_channel_becomes_unavailable_and_recovers(
+    hass: HomeAssistant,
+    api_test_object: ApiTestObject,
+    caplog: pytest.LogCaptureFixture,
+    response: dict[str, Any],
+) -> None:
+    """A channel the integration cannot read must not keep showing its last data."""
+
+    # Setup
+    hass.config.units = US_CUSTOMARY_SYSTEM
+    entry = _api_key_entry(hass)
+    await _set_up(hass, entry)
+    api_test_object.respond_to_devices(body=response)
+
+    # Act
+    await _poll(hass)
+
+    # Assert
+    for entity_id in (TEMPERATURE_ENTITY, HIGH_ALARM_ENTITY, HIGH_THRESHOLD_ENTITY):
+        state = hass.states.get(entity_id)
+        assert state is not None
+        assert state.state == "unavailable"
+    assert "Unexpected error updating listener" not in caplog.text
+
+    # Recover using the same entities.
+    api_test_object.respond_to_devices(body=GET_DEVICES_RESPONSE)
+    await _poll(hass, DEFAULT_SCAN_INTERVAL_SECONDS * 2)
+    recovered = hass.states.get(TEMPERATURE_ENTITY)
+    assert recovered is not None
+    assert float(recovered.state) == GET_DEVICES_RESPONSE["devices"][0]["channels"][0]["value"]
+
+
+async def test_channel_last_seen_is_not_recorded(
+    hass: HomeAssistant, api_test_object: ApiTestObject
+) -> None:
+    """Keep the measurement timestamp in history without storing every device contact."""
+
+    # Setup
+    entry = _api_key_entry(hass)
+
+    # Act
+    await _set_up(hass, entry)
+
+    # Assert
+    state = hass.states.get(TEMPERATURE_ENTITY)
+    assert state is not None
+    assert state.attributes["last_seen"] is not None
+    assert state.state_info is not None
+    unrecorded = state.state_info["unrecorded_attributes"]
+    assert "last_seen" in unrecorded
+    assert "last_telemetry_saved" not in unrecorded
+
+
+async def test_initial_null_reading_still_creates_entities(
     hass: HomeAssistant, api_test_object: ApiTestObject
 ) -> None:
     """A null reading must not prevent discovery or recovery of a known channel."""
@@ -534,7 +598,7 @@ async def test_initial_failed_probe_with_no_value_still_creates_entities(
     # Setup
     hass.config.units = US_CUSTOMARY_SYSTEM
     entry = _api_key_entry(hass)
-    api_test_object.respond_to_devices(body=GET_DEVICES_FAILED_PROBE_RESPONSE)
+    api_test_object.respond_to_devices(body=GET_DEVICES_NULL_READING_RESPONSE)
 
     # Act
     await _set_up(hass, entry)
@@ -546,7 +610,7 @@ async def test_initial_failed_probe_with_no_value_still_creates_entities(
     threshold = hass.states.get(HIGH_THRESHOLD_ENTITY)
     assert threshold is not None
     assert float(threshold.state) == (
-        GET_DEVICES_FAILED_PROBE_RESPONSE["devices"][0]["channels"][0]["alarmHigh"]["value"]
+        GET_DEVICES_NULL_READING_RESPONSE["devices"][0]["channels"][0]["alarmHigh"]["value"]
     )
 
 
