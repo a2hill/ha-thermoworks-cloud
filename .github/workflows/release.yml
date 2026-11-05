@@ -1,19 +1,16 @@
-# Creates a tag and GitHub release whenever a new version lands on main, so that merging a version
-# bump PR is the whole release. The version in manifest.json is the source of truth: a release is
-# due when that version has no tag yet.
+# Creates a GitHub release when a version tag is pushed. To release, merge a PR that bumps the
+# version in manifest.json, then tag the merge commit with that version, such as v0.2.1.
 name: Release
 
 on:
-  # Only commits that touch the manifest can change the version, so nothing runs for the rest.
   push:
-    branches: [main]
-    paths:
-      - custom_components/thermoworks_cloud/manifest.json
+    tags:
+      - "v*"
 
 jobs:
   # A release must never come from a commit that failed its tests. This uses the Tests workflow
-  # itself so the two cannot drift apart. Waiting on the separate run that Tests starts for this
-  # push is not possible with this trigger, so the tests run twice on version bump commits.
+  # itself so the two cannot drift apart. Tests also starts its own run for the tag, and a workflow
+  # triggered by a push cannot wait on that run, so the tests run twice for each release.
   tests:
     uses: ./.github/workflows/tests.yml
     permissions:
@@ -26,17 +23,17 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
-      - name: Release the manifest version if it is new
+      - name: Check the tag matches the manifest version
+        run: |
+          # HACS shows the release tag, while Home Assistant reports the manifest version. Fail
+          # here rather than publish a release where the two disagree.
+          manifest_tag="v$(jq -r .version custom_components/thermoworks_cloud/manifest.json)"
+          if [ "$GITHUB_REF_NAME" != "$manifest_tag" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match manifest version $manifest_tag"
+            exit 1
+          fi
+      - name: Create the release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          tag="v$(jq -r .version custom_components/thermoworks_cloud/manifest.json)"
-
-          # The manifest also changes for other reasons, such as a dependency update.
-          if git ls-remote --exit-code --tags origin "refs/tags/$tag"; then
-            echo "$tag already exists, nothing to release"
-            exit 0
-          fi
-
-          # Notes are generated from the merged PRs. Edit the release afterwards if it needs more.
-          gh release create "$tag" --target "$GITHUB_SHA" --generate-notes
+        # Notes are generated from the merged PRs. Edit the release afterwards if it needs more.
+        run: gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes
