@@ -4,42 +4,39 @@
 name: Release
 
 on:
-  # Run after the Tests workflow instead of repeating it, so a release can only come from a commit
-  # that passed. GitHub always uses the copy of this file on main for this trigger.
-  workflow_run:
-    workflows: [Tests]
-    types: [completed]
+  # Only commits that touch the manifest can change the version, so nothing runs for the rest.
+  push:
     branches: [main]
-
-permissions:
-  contents: write
+    paths:
+      - custom_components/thermoworks_cloud/manifest.json
 
 jobs:
+  # A release must never come from a commit that failed its tests. This uses the Tests workflow
+  # itself so the two cannot drift apart. Waiting on the separate run that Tests starts for this
+  # push is not possible with this trigger, so the tests run twice on version bump commits.
+  tests:
+    uses: ./.github/workflows/tests.yml
+    permissions:
+      contents: read
+
   release:
-    # Tests also runs for pull requests, and `branches` only compares the branch name, so a fork's
-    # main branch would match it. Checking for a push means only commits on our main are released.
-    if: >-
-      github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.event == 'push'
+    needs: tests
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
-      # workflow_run starts on the latest commit of main, which may be newer than the one that was
-      # tested, so check out and release exactly the tested commit.
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.workflow_run.head_sha }}
       - name: Release the manifest version if it is new
         env:
           GH_TOKEN: ${{ github.token }}
-          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           tag="v$(jq -r .version custom_components/thermoworks_cloud/manifest.json)"
 
-          # This runs for every commit on main, and most of them do not change the version.
+          # The manifest also changes for other reasons, such as a dependency update.
           if git ls-remote --exit-code --tags origin "refs/tags/$tag"; then
             echo "$tag already exists, nothing to release"
             exit 0
           fi
 
           # Notes are generated from the merged PRs. Edit the release afterwards if it needs more.
-          gh release create "$tag" --target "$HEAD_SHA" --generate-notes
+          gh release create "$tag" --target "$GITHUB_SHA" --generate-notes
