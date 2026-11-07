@@ -144,3 +144,5 @@ class ApiTestObject:
         return web.json_response(
             self.devices_body, status=self.devices_status, headers=self.devices_headers
         )
+GET_DEVICES_CHARGING_RESPONSE = deepcopy(GET_DEVICES_RESPONSE)
+GET_DEVICES_CHARGING_RESPONSE["devices"][0]["batteryState"] = "charging"

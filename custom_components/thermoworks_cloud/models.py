@@ -80,6 +80,8 @@ class ThermoworksDevice(BaseDevice):
             firmware=device.firmware,
             serial=device.serial,
             battery=device.battery,
+            # Indicates whether the battery is charging
+            battery_state=device.battery_state,
             wifi_strength=device.wifi_strength,
             signal_strength=device.signal_strength,
             fan=getattr(device, "fan", None),
