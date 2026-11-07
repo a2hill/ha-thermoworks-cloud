@@ -6,21 +6,22 @@ Every entity follows the same rules:
   and passes it to its own `parse` method. `parse` returns a view: a small frozen dataclass
   holding everything the entity shows. Entity properties read only from the view, never from
   the source, so each entity's dependencies are written down in one place.
-- A view has two parts. Its `reading` groups what the entity currently reads (the value and
-  anything shown about it), and is None when the source can't give a reading right now.
+- A view has two parts. Its `entity_state` is each entity's own type holding what it
+  currently reads (the value and anything shown about it, like Home Assistant's state and
+  attributes), and is None when the source can't give one right now.
   The rest describes what the entity is (name, unit, ...) and is always there, because Home
   Assistant shows those even while an entity is unavailable.
 - An entity is unavailable when the coordinator update failed, its source is gone from the
-  API, or its view has no reading. It recovers on the next update that has one. A stale
-  reading is never shown as current. When the source is gone, the last view is kept for
+  API, or its view has no entity state. It recovers on the next update that has one. A
+  stale entity state is never shown as current. When the source is gone, the last view is kept for
   the description.
-- A value Home Assistant should show as unknown is part of the reading, for entities where
+- A value Home Assistant should show as unknown is part of the entity state, for entities where
   that happens (e.g. a fan that doesn't report whether it's connected).
 - Identity lives here. Each class declares its suffixes, and the base class builds the
   entity id and unique id from them, so the two formats can't diverge between classes.
 
 `supported` decides whether an entity is created at setup. By default it's created when
-`parse` gives a reading, but some entities override it so they're still created when the value
+`parse` gives an entity state, but some entities override it so they're still created when the value
 is missing at first (a channel with no reading yet, for example).
 
 State is written on every update so availability changes always reach Home Assistant.
@@ -46,8 +47,8 @@ from .models import ThermoworksChannel, ThermoworksDevice
 class View[R]:
     """What an entity shows. Subclasses add the fields that describe the entity."""
 
-    # What the entity currently reads, or None if the source can't give a reading
-    reading: R | None
+    # What the entity currently reads, or None if the source can't give it right now
+    entity_state: R | None
 
 
 @dataclass(frozen=True)
@@ -90,7 +91,7 @@ class ThermoworksEntity[S, R](CoordinatorEntity[ThermoworksCoordinator]):
     @classmethod
     def supported(cls, source: S) -> bool:
         """Return whether to create this entity for the source at setup."""
-        return cls.parse(source).reading is not None
+        return cls.parse(source).entity_state is not None
 
     @abstractmethod
     def _unique_id_parts(self) -> list[str]:
@@ -101,19 +102,19 @@ class ThermoworksEntity[S, R](CoordinatorEntity[ThermoworksCoordinator]):
         """Return this entity's source from the latest data, or None if it's gone."""
 
     @property
-    def _reading(self) -> R:
-        """Return the current reading.
+    def _entity_state(self) -> R:
+        """Return the current entity state.
 
         Only for properties Home Assistant reads while the entity is available (state and
-        attributes), which is exactly when there's a reading.
+        attributes), which is exactly when there's an entity state.
         """
-        assert self._view.reading is not None
-        return self._view.reading
+        assert self._view.entity_state is not None
+        return self._view.entity_state
 
     @property
     def available(self) -> bool:
-        """Return whether the latest update gave this entity a reading."""
-        return super().available and self._source_found and self._view.reading is not None
+        """Return whether the latest update gave this entity an entity state."""
+        return super().available and self._source_found and self._view.entity_state is not None
 
     @callback
     def _handle_coordinator_update(self) -> None:

@@ -119,14 +119,14 @@ class DeviceSensor[R](ThermoworksDeviceEntity[R], SensorEntity):
 
 
 @dataclass(frozen=True)
-class BatteryReading:
+class BatteryState:
     """Battery level, and whether it's charging."""
 
     level: float
     charging: bool
 
 
-class BatterySensor(DeviceSensor[BatteryReading]):
+class BatterySensor(DeviceSensor[BatteryState]):
     """Battery level of the device, with a charging icon while it charges."""
 
     entity_suffix = "battery"
@@ -149,10 +149,10 @@ class BatterySensor(DeviceSensor[BatteryReading]):
     _attr_suggested_display_precision = 0
 
     @classmethod
-    def parse(cls, device: ThermoworksDevice) -> View[BatteryReading]:
+    def parse(cls, device: ThermoworksDevice) -> View[BatteryState]:
         if device.battery is None:
-            return View(reading=None)
-        return View(reading=BatteryReading(
+            return View(entity_state=None)
+        return View(entity_state=BatteryState(
             level=float(device.battery), charging=device.battery_state == "charging"
         ))
 
@@ -160,14 +160,14 @@ class BatterySensor(DeviceSensor[BatteryReading]):
     def icon(self) -> str | None:
         """Return the icon to use in the frontend, if any."""
         # Only handle charging, as HA doesn't natively support a charging icon.
-        # The icon is read even while unavailable, so it can't assume a reading.
-        reading = self._view.reading
-        return "mdi:battery-charging-100" if reading and reading.charging else None
+        # The icon is read even while unavailable, so it can't assume an entity state.
+        state = self._view.entity_state
+        return "mdi:battery-charging-100" if state and state.charging else None
 
     @property
     def native_value(self) -> float:
         """Return the battery level."""
-        return self._reading.level
+        return self._entity_state.level
 
 
 class SignalSensor(DeviceSensor[float]):
@@ -192,12 +192,12 @@ class SignalSensor(DeviceSensor[float]):
     @classmethod
     def parse(cls, device: ThermoworksDevice) -> View[float]:
         signal = device.signal_strength
-        return View(reading=float(signal) if signal is not None else None)
+        return View(entity_state=float(signal) if signal is not None else None)
 
     @property
     def native_value(self) -> float:
         """Return the signal strength."""
-        return self._reading
+        return self._entity_state
 
 
 class LastSeenSensor(DeviceSensor[datetime]):
@@ -212,12 +212,12 @@ class LastSeenSensor(DeviceSensor[datetime]):
     @classmethod
     def parse(cls, device: ThermoworksDevice) -> View[datetime]:
         # Already parsed into UTC by the device model
-        return View(reading=device.last_seen)
+        return View(entity_state=device.last_seen)
 
     @property
     def native_value(self) -> datetime:
         """Return when the device was last seen."""
-        return self._reading
+        return self._entity_state
 
 
 class TransmitIntervalSensor(DeviceSensor[int]):
@@ -232,12 +232,12 @@ class TransmitIntervalSensor(DeviceSensor[int]):
 
     @classmethod
     def parse(cls, device: ThermoworksDevice) -> View[int]:
-        return View(reading=device.transmit_interval_in_seconds)
+        return View(entity_state=device.transmit_interval_in_seconds)
 
     @property
     def native_value(self) -> int:
         """Return the transmit interval."""
-        return self._reading
+        return self._entity_state
 
 
 class FanSensor[R](DeviceSensor[R]):
@@ -258,13 +258,13 @@ class FanSensor[R](DeviceSensor[R]):
 
 
 @dataclass(frozen=True)
-class FanStateReading:
+class FanStatus:
     """What a connected fan is doing. None if it doesn't say, shown as unknown."""
 
     state_name: str | None
 
 
-class FanStateSensor(FanSensor[FanStateReading]):
+class FanStateSensor(FanSensor[FanStatus]):
     """What the fan is doing: paused, blowing or pulsing."""
 
     entity_suffix = "fan_state"
@@ -275,14 +275,14 @@ class FanStateSensor(FanSensor[FanStateReading]):
     _attr_translation_key = "fan_state"
 
     @classmethod
-    def parse(cls, device: ThermoworksDevice) -> View[FanStateReading]:
+    def parse(cls, device: ThermoworksDevice) -> View[FanStatus]:
         fan = device.connected_fan
-        return View(reading=FanStateReading(fan.state_name) if fan is not None else None)
+        return View(entity_state=FanStatus(fan.state_name) if fan is not None else None)
 
     @property
     def native_value(self) -> str | None:
         """Return the fan state name."""
-        return self._reading.state_name
+        return self._entity_state.state_name
 
 
 @dataclass(frozen=True)
@@ -316,7 +316,7 @@ class FanSetTemperatureSensor(FanSensor[FanSetpoint]):
         fan = device.connected_fan
         unit = _ha_unit(device.device_display_units)
         return FanSetTemperatureView(
-            reading=FanSetpoint(fan.set_temp, fan.fan_channel) if fan is not None else None,
+            entity_state=FanSetpoint(fan.set_temp, fan.fan_channel) if fan is not None else None,
             # A number without a known temperature unit is shown as a plain number
             unit=unit if unit in TEMPERATURE_UNITS else None,
         )
@@ -334,15 +334,15 @@ class FanSetTemperatureSensor(FanSensor[FanSetpoint]):
     @property
     def extra_state_attributes(self) -> dict[str, str]:
         """Return the channel the fan follows."""
-        if self._reading.fan_channel is None:
+        if self._entity_state.fan_channel is None:
             return {}
 
-        return {"channel": self._reading.fan_channel}
+        return {"channel": self._entity_state.fan_channel}
 
     @property
     def native_value(self) -> int | None:
         """Return the fan set temperature."""
-        return self._reading.temperature
+        return self._entity_state.temperature
 
 
 class ChannelSensor[R](ThermoworksChannelEntity[R], SensorEntity):
@@ -415,7 +415,7 @@ class MeasurementSensor(ChannelSensor[Measurement]):
                 attributes=_channel_attributes(channel),
             )
         return MeasurementView(
-            reading=measurement,
+            entity_state=measurement,
             name=channel.display_name(),
             unit=unit if supported else None,
         )
@@ -432,12 +432,12 @@ class MeasurementSensor(ChannelSensor[Measurement]):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return the channel metadata."""
-        return self._reading.attributes
+        return self._entity_state.attributes
 
     @property
     def native_value(self) -> float:
         """Return the reading."""
-        return self._reading.value
+        return self._entity_state.value
 
 
 class TemperatureSensor(MeasurementSensor):
@@ -506,9 +506,9 @@ class AlarmThresholdSensor(ChannelSensor[AlarmThreshold]):
     def parse(cls, channel: ThermoworksChannel) -> AlarmThresholdView:
         alarm = cls._alarm(channel)
         if alarm is None:
-            return AlarmThresholdView(reading=None, name=channel.display_name(), unit=None)
+            return AlarmThresholdView(entity_state=None, name=channel.display_name(), unit=None)
         return AlarmThresholdView(
-            reading=AlarmThreshold(alarm.value, alarm.enabled, alarm.alarming),
+            entity_state=AlarmThreshold(alarm.value, alarm.enabled, alarm.alarming),
             name=channel.display_name(),
             unit=_ha_unit(alarm.units),
         )
@@ -536,14 +536,14 @@ class AlarmThresholdSensor(ChannelSensor[AlarmThreshold]):
     def extra_state_attributes(self) -> dict[str, bool | None]:
         """Return alarm metadata."""
         return {
-            "enabled": self._reading.enabled,
-            "alarming": self._reading.alarming,
+            "enabled": self._entity_state.enabled,
+            "alarming": self._entity_state.alarming,
         }
 
     @property
     def native_value(self) -> float | None:
         """Return the configured alarm threshold."""
-        return self._reading.value
+        return self._entity_state.value
 
 
 class HighAlarmThresholdSensor(AlarmThresholdSensor):
