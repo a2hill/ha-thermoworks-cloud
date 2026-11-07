@@ -33,6 +33,9 @@ from tests.api_test_object import (
     GET_DEVICES_FAILED_PROBE_RESPONSE,
     GET_DEVICES_NULL_READING_RESPONSE,
     GET_DEVICES_NULL_UNITS_RESPONSE,
+    GET_DEVICES_CHARGING_RESPONSE,
+    GET_DEVICES_NULL_BATTERY_RESPONSE,
+    GET_DEVICES_NO_DEVICES_RESPONSE,
     GET_DEVICES_NO_CHANNELS_RESPONSE,
     GET_DEVICES_DISABLED_CHANNEL_RESPONSE,
     GET_DEVICES_UNKNOWN_CHANNEL_METADATA_RESPONSE,
@@ -49,6 +52,14 @@ TEMPERATURE_ENTITY = "sensor.12_34_56_78_90_ab_ch_1_temperature"
 HIGH_THRESHOLD_ENTITY = "sensor.12_34_56_78_90_ab_ch_1_high_alarm_threshold"
 HIGH_ALARM_ENTITY = "binary_sensor.12_34_56_78_90_ab_ch_1_high_alarm"
 LOW_ALARM_ENTITY = "binary_sensor.12_34_56_78_90_ab_ch_1_low_alarm"
+BATTERY_ENTITY = "sensor.12_34_56_78_90_ab_battery"
+SIGNAL_ENTITY = "sensor.12_34_56_78_90_ab_signal"
+DEVICE_ENTITIES = (
+    BATTERY_ENTITY,
+    SIGNAL_ENTITY,
+    "sensor.12_34_56_78_90_ab_last_seen",
+    "sensor.12_34_56_78_90_ab_transmit_interval",
+)
 
 
 def _api_key_entry(hass: HomeAssistant) -> MockConfigEntry:
@@ -687,3 +698,90 @@ async def test_channel_api_id_does_not_replace_entity_identity(
     after = registry.async_get(TEMPERATURE_ENTITY)
     assert after is not None
     assert after.unique_id == unique_id
+
+
+async def test_charging_battery_uses_the_charging_icon(
+    hass: HomeAssistant, api_test_object: ApiTestObject
+) -> None:
+    """The battery state from the API reaches the battery sensor's icon."""
+
+    # Setup
+    entry = _api_key_entry(hass)
+    api_test_object.respond_to_devices(body=GET_DEVICES_CHARGING_RESPONSE)
+
+    # Act
+    await _set_up(hass, entry)
+
+    # Assert
+    state = hass.states.get(BATTERY_ENTITY)
+    assert state is not None
+    assert state.attributes.get("icon") == "mdi:battery-charging-100"
+
+
+async def test_lost_device_field_only_affects_its_entity(
+    hass: HomeAssistant,
+    api_test_object: ApiTestObject,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A device losing one value makes that entity unavailable without stalling the rest."""
+
+    # Setup
+    hass.config.units = US_CUSTOMARY_SYSTEM
+    entry = _api_key_entry(hass)
+    await _set_up(hass, entry)
+    api_test_object.respond_to_devices(body=GET_DEVICES_NULL_BATTERY_RESPONSE)
+
+    # Act
+    await _poll(hass)
+
+    # Assert
+    battery = hass.states.get(BATTERY_ENTITY)
+    assert battery is not None
+    assert battery.state == "unavailable"
+    # Entities updated after the battery sensor still get the new data
+    signal = hass.states.get(SIGNAL_ENTITY)
+    assert signal is not None
+    assert float(signal.state) == -70
+    temperature = hass.states.get(TEMPERATURE_ENTITY)
+    assert temperature is not None
+    assert float(temperature.state) == 5.0
+    assert "Unexpected error updating listener" not in caplog.text
+
+    # Recover using the same entity.
+    api_test_object.respond_to_devices(body=GET_DEVICES_RESPONSE)
+    await _poll(hass, DEFAULT_SCAN_INTERVAL_SECONDS * 2)
+    recovered = hass.states.get(BATTERY_ENTITY)
+    assert recovered is not None
+    assert float(recovered.state) == GET_DEVICES_RESPONSE["devices"][0]["battery"]
+
+
+async def test_missing_device_becomes_unavailable_and_recovers(
+    hass: HomeAssistant,
+    api_test_object: ApiTestObject,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A device the API stops returning must not keep showing its last values."""
+
+    # Setup
+    hass.config.units = US_CUSTOMARY_SYSTEM
+    entry = _api_key_entry(hass)
+    await _set_up(hass, entry)
+    api_test_object.respond_to_devices(body=GET_DEVICES_NO_DEVICES_RESPONSE)
+
+    # Act
+    await _poll(hass)
+
+    # Assert
+    for entity_id in (*DEVICE_ENTITIES, TEMPERATURE_ENTITY):
+        state = hass.states.get(entity_id)
+        assert state is not None
+        assert state.state == "unavailable", entity_id
+    assert "Unexpected error updating listener" not in caplog.text
+
+    # Recover using the same entities.
+    api_test_object.respond_to_devices(body=GET_DEVICES_RESPONSE)
+    await _poll(hass, DEFAULT_SCAN_INTERVAL_SECONDS * 2)
+    for entity_id in DEVICE_ENTITIES:
+        state = hass.states.get(entity_id)
+        assert state is not None
+        assert state.state != "unavailable", entity_id

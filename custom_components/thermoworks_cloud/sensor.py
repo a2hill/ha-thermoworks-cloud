@@ -15,7 +15,7 @@ from homeassistant.util import dt as dt_util
 from homeassistant.helpers.device_registry import format_mac, DeviceInfo
 from homeassistant.helpers.entity import async_generate_entity_id
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.update_coordinator import CoordinatorEntity, UpdateFailed
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
 
@@ -32,6 +32,7 @@ from .models import (
 )
 
 from .coordinator import ThermoworksCoordinator
+from .entity import ThermoworksDeviceEntity
 
 _LOGGER: logging.Logger = logging.getLogger(__package__)
 
@@ -228,8 +229,10 @@ async def async_setup_entry(
         _LOGGER.debug("No new entities created")
 
 
-class BatterySensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
+class BatterySensor(ThermoworksDeviceEntity, SensorEntity):
     """Implementation of a sensor."""
+
+    _capability = DeviceWithBattery
 
     # https://developers.home-assistant.io/docs/core/entity/sensor/#available-device-classes
     _attr_device_class = SensorDeviceClass.BATTERY
@@ -247,33 +250,6 @@ class BatterySensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
     # https://developers.home-assistant.io/docs/core/entity/sensor#properties
     _attr_native_unit_of_measurement = PERCENTAGE
     _attr_suggested_display_precision = 0
-
-    def __init__(
-        self,
-        entity_id: str,
-        coordinator: ThermoworksCoordinator,
-        device: DeviceWithBattery,
-    ) -> None:
-        """Initialise sensor."""
-        super().__init__(coordinator)
-        self.entity_id = entity_id
-        self._device = device
-
-    @callback
-    def _handle_coordinator_update(self) -> None:
-        """Update sensor with latest data from coordinator."""
-        # This method is called by your DataUpdateCoordinator when a successful update runs.
-        device = self.coordinator.get_device_by_id(
-            self._device.get_identifier())
-        if not device:
-            raise UpdateFailed(
-                f"Cannot update sensor {self.name}: device {self._device.display_name()} is not found")
-        if not DeviceWithBattery.is_protocol_compliant(device):
-            raise UpdateFailed(
-                f"Cannot update sensor {self.name}: device {self._device.display_name()} is missing required "
-                f"attribute(s): {get_missing_attributes(device, DeviceWithBattery)}")
-        self._device = device
-        self.async_write_ha_state()
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -322,37 +298,14 @@ class BatterySensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
         return f"{DOMAIN}-{format_mac(self._device.get_identifier())}"
 
 
-class LastSeenSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
+class LastSeenSensor(ThermoworksDeviceEntity, SensorEntity):
     """Implementation of a last seen timestamp sensor."""
+
+    _capability = DeviceWithLastSeen
 
     _attr_device_class = SensorDeviceClass.TIMESTAMP
     _attr_has_entity_name = True
     _attr_translation_key = "last_seen"
-
-    def __init__(
-        self,
-        entity_id: str,
-        coordinator: ThermoworksCoordinator,
-        device: DeviceWithLastSeen,
-    ) -> None:
-        super().__init__(coordinator)
-        self.entity_id = entity_id
-        self._device = device
-
-    @callback
-    def _handle_coordinator_update(self) -> None:
-        device = self.coordinator.get_device_by_id(self._device.get_identifier())
-        if not device:
-            raise UpdateFailed(
-                f"Cannot update sensor {self.name}: device {self._device.display_name()} is not found"
-            )
-        if not DeviceWithLastSeen.is_protocol_compliant(device):
-            raise UpdateFailed(
-                f"Cannot update sensor {self.name}: device {self._device.display_name()} is missing required "
-                f"attribute(s): {get_missing_attributes(device, DeviceWithLastSeen)}"
-            )
-        self._device = device
-        self.async_write_ha_state()
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -381,38 +334,15 @@ class LastSeenSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
         return f"{DOMAIN}-{format_mac(self._device.get_identifier())}-last-seen"
 
 
-class TransmitIntervalSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
+class TransmitIntervalSensor(ThermoworksDeviceEntity, SensorEntity):
     """Implementation of a transmit interval sensor."""
+
+    _capability = DeviceWithTransmitInterval
 
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = UnitOfTime.SECONDS
     _attr_has_entity_name = True
     _attr_translation_key = "transmit_interval"
-
-    def __init__(
-        self,
-        entity_id: str,
-        coordinator: ThermoworksCoordinator,
-        device: DeviceWithTransmitInterval,
-    ) -> None:
-        super().__init__(coordinator)
-        self.entity_id = entity_id
-        self._device = device
-
-    @callback
-    def _handle_coordinator_update(self) -> None:
-        device = self.coordinator.get_device_by_id(self._device.get_identifier())
-        if not device:
-            raise UpdateFailed(
-                f"Cannot update sensor {self.name}: device {self._device.display_name()} is not found"
-            )
-        if not DeviceWithTransmitInterval.is_protocol_compliant(device):
-            raise UpdateFailed(
-                f"Cannot update sensor {self.name}: device {self._device.display_name()} is missing required "
-                f"attribute(s): {get_missing_attributes(device, DeviceWithTransmitInterval)}"
-            )
-        self._device = device
-        self.async_write_ha_state()
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -690,37 +620,12 @@ class LowAlarmThresholdSensor(AlarmThresholdSensor):
         return f"{DOMAIN}-{format_mac(self._device_serial)}-{self._device_channel.number}-low-alarm-threshold"
 
 
-class FanSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
+class FanSensor(ThermoworksDeviceEntity, SensorEntity):
     """Base class for Thermoworks fan accessory sensors."""
 
+    _capability = DeviceWithFan
+
     _attr_has_entity_name = True
-
-    def __init__(
-        self,
-        entity_id: str,
-        coordinator: ThermoworksCoordinator,
-        device: DeviceWithFan,
-    ) -> None:
-        """Initialise sensor."""
-        super().__init__(coordinator)
-        self.entity_id = entity_id
-        self._device = device
-
-    @callback
-    def _handle_coordinator_update(self) -> None:
-        """Update sensor with latest data from coordinator."""
-        device = self.coordinator.get_device_by_id(self._device.get_identifier())
-        if not device:
-            raise UpdateFailed(
-                f"Cannot update sensor {self.name}: device {self._device.display_name()} is not found"
-            )
-        if not DeviceWithFan.is_protocol_compliant(device):
-            raise UpdateFailed(
-                f"Cannot update sensor {self.name}: device {self._device.display_name()} is missing required "
-                f"attribute(s): {get_missing_attributes(device, DeviceWithFan)}"
-            )
-        self._device = device
-        self.async_write_ha_state()
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -801,8 +706,10 @@ class FanSetTemperatureSensor(FanSensor):
         return f"{DOMAIN}-{format_mac(self._device.get_identifier())}-fan-set-temperature"
 
 
-class SignalSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
+class SignalSensor(ThermoworksDeviceEntity, SensorEntity):
     """Implementation of a sensor."""
+
+    _capability = DeviceWithSignalStrength
 
     # https://developers.home-assistant.io/docs/core/entity/sensor/#available-device-classes
     _attr_device_class = SensorDeviceClass.SIGNAL_STRENGTH
@@ -820,33 +727,6 @@ class SignalSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
     # https://developers.home-assistant.io/docs/core/entity/sensor#properties
     _attr_native_unit_of_measurement = SIGNAL_STRENGTH_DECIBELS_MILLIWATT
     _attr_suggested_display_precision = 0
-
-    def __init__(
-        self,
-        entity_id: str,
-        coordinator: ThermoworksCoordinator,
-        device: DeviceWithSignalStrength,
-    ) -> None:
-        """Initialise sensor."""
-        super().__init__(coordinator)
-        self.entity_id = entity_id
-        self._device = device
-
-    @callback
-    def _handle_coordinator_update(self) -> None:
-        """Update sensor with latest data from coordinator."""
-        # This method is called by your DataUpdateCoordinator when a successful update runs.
-        device = self.coordinator.get_device_by_id(
-            self._device.get_identifier())
-        if not device:
-            raise UpdateFailed(
-                f"Cannot update sensor {self.name}: device {self._device.display_name()} is not found")
-        if not DeviceWithSignalStrength.is_protocol_compliant(device):
-            raise UpdateFailed(
-                f"Cannot update sensor {self.name}: device {self._device.display_name()} is missing required "
-                f"attribute(s): {get_missing_attributes(device, DeviceWithSignalStrength)}")
-        self._device = device
-        self.async_write_ha_state()
 
     @property
     def device_info(self) -> DeviceInfo:

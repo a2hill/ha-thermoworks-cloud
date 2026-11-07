@@ -10,16 +10,16 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo, format_mac
 from homeassistant.helpers.entity import async_generate_entity_id
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.update_coordinator import CoordinatorEntity, UpdateFailed
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
 from .coordinator import ThermoworksCoordinator
+from .entity import ThermoworksDeviceEntity
 from .models import (
     ChannelWithHighAlarm,
     ChannelWithLowAlarm,
     DeviceWithFan,
     ThermoworksChannel,
-    get_missing_attributes,
 )
 
 
@@ -82,39 +82,14 @@ async def async_setup_entry(
     async_add_entities(new_entities)
 
 
-class FanConnectedSensor(CoordinatorEntity[ThermoworksCoordinator], BinarySensorEntity):
+class FanConnectedSensor(ThermoworksDeviceEntity, BinarySensorEntity):
     """Implementation of a Thermoworks fan connection sensor."""
+
+    _capability = DeviceWithFan
 
     _attr_device_class = BinarySensorDeviceClass.CONNECTIVITY
     _attr_has_entity_name = True
     _attr_translation_key = "fan_connected"
-
-    def __init__(
-        self,
-        entity_id: str,
-        coordinator: ThermoworksCoordinator,
-        device: DeviceWithFan,
-    ) -> None:
-        """Initialise sensor."""
-        super().__init__(coordinator)
-        self.entity_id = entity_id
-        self._device = device
-
-    @callback
-    def _handle_coordinator_update(self) -> None:
-        """Update sensor with latest data from coordinator."""
-        device = self.coordinator.get_device_by_id(self._device.get_identifier())
-        if not device:
-            raise UpdateFailed(
-                f"Cannot update sensor {self.name}: device {self._device.display_name()} is not found"
-            )
-        if not DeviceWithFan.is_protocol_compliant(device):
-            raise UpdateFailed(
-                f"Cannot update sensor {self.name}: device {self._device.display_name()} is missing required "
-                f"attribute(s): {get_missing_attributes(device, DeviceWithFan)}"
-            )
-        self._device = device
-        self.async_write_ha_state()
 
     @property
     def device_info(self) -> DeviceInfo:
