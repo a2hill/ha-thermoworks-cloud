@@ -62,8 +62,8 @@ class ThermoworksChannel:
 
         return cls(
             number=channel.number,
-            units=channel.units,
             value=channel.value,
+            units=channel.units,
             status=channel.status,
             label=channel.label,
             alarm_high=channel.alarm_high,

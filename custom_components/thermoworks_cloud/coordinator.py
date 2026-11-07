@@ -44,6 +44,16 @@ class ThermoworksData:
     devices: dict[str, ThermoworksDevice]
 
 
+def _api_device_name(api_device: Device) -> str:
+    """Return a readable name for a device that hasn't been parsed yet, for logging.
+
+    Mirrors ThermoworksDevice.display_name(), but nothing is required yet, so every
+    field has a fallback.
+    """
+    device_type = api_device.device_name or api_device.type or "unknown device"
+    return f"{api_device.label or "unnamed device"} ({device_type} - {api_device.serial or "no serial"})"
+
+
 def _parse_device(
     api_device: Device, api_channels: Iterable[DeviceChannel]
 ) -> ThermoworksDevice | None:
@@ -56,12 +66,15 @@ def _parse_device(
         try:
             channels.append(ThermoworksChannel.from_api_channel(api_channel))
         except MissingRequiredAttributeError as err:
-            _LOGGER.error("Channel %s for device %s: %s",
-                          getattr(api_channel, "number", None), api_device.serial, err)
+            _LOGGER.error("Skipping channel %s (Ch. %s) for device %s, missing: %s",
+                          api_channel.label or "unnamed channel", api_channel.number,
+                          _api_device_name(api_device),
+                          ", ".join(err.missing_attributes))
     try:
         return ThermoworksDevice.from_api_device(api_device, channels)
     except MissingRequiredAttributeError as err:
-        _LOGGER.error("Device %s: %s", api_device, err)
+        _LOGGER.error("Skipping device %s, missing: %s",
+                      _api_device_name(api_device), ", ".join(err.missing_attributes))
         return None
 
 
@@ -156,7 +169,8 @@ class ThermoworksCoordinator(DataUpdateCoordinator[ThermoworksData]):
 
             for api_device in api_devices:
                 if api_device.serial is None:
-                    _LOGGER.error("Device %s: missing serial", api_device)
+                    _LOGGER.error("Skipping device %s, missing: serial",
+                                  _api_device_name(api_device))
                     # Channels are fetched by serial, so there's nothing more to read
                     continue
 
@@ -170,12 +184,12 @@ class ThermoworksCoordinator(DataUpdateCoordinator[ThermoworksData]):
                         ))
                     except ResourceNotFoundError:
                         _LOGGER.debug("No more channels found for device %s after channel %s",
-                                      api_device.serial, channel-1)
+                                      _api_device_name(api_device), channel-1)
                         # Go until there are no more
                         break
                     except Exception as channel_err:
                         _LOGGER.error("Error fetching channel %s for device %s: %s",
-                                      channel, api_device.serial, channel_err)
+                                      channel, _api_device_name(api_device), channel_err)
                         # Continue with next channel
                         continue
 

@@ -18,54 +18,6 @@ from .entity import ThermoworksChannelEntity, ThermoworksDeviceEntity
 from .models import ThermoworksChannel, ThermoworksDevice
 
 
-async def async_setup_entry(
-    hass: HomeAssistant,
-    config_entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
-) -> None:
-    """Add binary sensors for passed config_entry in HA."""
-    coordinator: ThermoworksCoordinator = hass.data[DOMAIN][
-        config_entry.entry_id
-    ].coordinator
-
-    new_entities: list[BinarySensorEntity] = []
-    for device in coordinator.data.devices.values():
-        identifier = device.get_identifier()
-
-        if FanConnectedSensor.supported(device):
-            new_entities.append(
-                FanConnectedSensor(
-                    entity_id=async_generate_entity_id(
-                        ENTITY_ID_FORMAT, f"{identifier}_fan_connected", hass=hass
-                    ),
-                    coordinator=coordinator,
-                    device=device,
-                )
-            )
-
-    # Channel alarms come after every fan sensor, the order they've always been created in
-    for device in coordinator.data.devices.values():
-        identifier = device.get_identifier()
-        for device_channel in device.channels.values():
-            for alarm_sensor in (HighAlarmBinarySensor, LowAlarmBinarySensor):
-                if not alarm_sensor.supported(device_channel):
-                    continue
-                new_entities.append(
-                    alarm_sensor(
-                        entity_id=async_generate_entity_id(
-                            ENTITY_ID_FORMAT,
-                            f"{identifier}_ch_{device_channel.number}_{alarm_sensor.entity_suffix}",
-                            hass=hass,
-                        ),
-                        coordinator=coordinator,
-                        device_serial=identifier,
-                        device_channel=device_channel,
-                    )
-                )
-
-    async_add_entities(new_entities)
-
-
 class FanConnectedSensor(ThermoworksDeviceEntity[Fan], BinarySensorEntity):
     """Implementation of a Thermoworks fan connection sensor.
 
@@ -202,3 +154,48 @@ class LowAlarmBinarySensor(AlarmBinarySensor):
     def unique_id(self) -> str:
         """Return unique id."""
         return f"{DOMAIN}-{format_mac(self._device_serial)}-{self._device_channel.number}-low-alarm"
+
+
+async def async_setup_entry(
+    hass: HomeAssistant,
+    config_entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    """Add binary sensors for passed config_entry in HA."""
+    coordinator: ThermoworksCoordinator = hass.data[DOMAIN][
+        config_entry.entry_id
+    ].coordinator
+
+    new_entities: list[BinarySensorEntity] = []
+    for device in coordinator.data.devices.values():
+        identifier = device.get_identifier()
+
+        if FanConnectedSensor.supported(device):
+            new_entities.append(
+                FanConnectedSensor(
+                    entity_id=async_generate_entity_id(
+                        ENTITY_ID_FORMAT, f"{identifier}_fan_connected", hass=hass
+                    ),
+                    coordinator=coordinator,
+                    device=device,
+                )
+            )
+
+        for device_channel in device.channels.values():
+            for alarm_sensor in (HighAlarmBinarySensor, LowAlarmBinarySensor):
+                if not alarm_sensor.supported(device_channel):
+                    continue
+                new_entities.append(
+                    alarm_sensor(
+                        entity_id=async_generate_entity_id(
+                            ENTITY_ID_FORMAT,
+                            f"{identifier}_ch_{device_channel.number}_{alarm_sensor.entity_suffix}",
+                            hass=hass,
+                        ),
+                        coordinator=coordinator,
+                        device_serial=identifier,
+                        device_channel=device_channel,
+                    )
+                )
+
+    async_add_entities(new_entities)

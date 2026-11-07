@@ -29,73 +29,19 @@ from .models import ThermoworksChannel, ThermoworksDevice
 
 _LOGGER: logging.Logger = logging.getLogger(__package__)
 
-# Channel units the API reports, mapped to Home Assistant units
-TEMPERATURE_UNITS = {"F": UnitOfTemperature.FAHRENHEIT, "C": UnitOfTemperature.CELSIUS}
-HUMIDITY_UNIT = "H"
+# Units the API reports, mapped to Home Assistant units. All unit conversion goes
+# through this map; unknown units map to None.
+API_UNITS: dict[str, str] = {
+    "F": UnitOfTemperature.FAHRENHEIT,
+    "C": UnitOfTemperature.CELSIUS,
+    "H": PERCENTAGE,
+}
+TEMPERATURE_UNITS = (UnitOfTemperature.FAHRENHEIT, UnitOfTemperature.CELSIUS)
 
 
-async def async_setup_entry(
-    hass: HomeAssistant,
-    config_entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
-) -> None:
-    """Add sensors for passed config_entry in HA."""
-
-    coordinator: ThermoworksCoordinator = hass.data[DOMAIN][
-        config_entry.entry_id
-    ].coordinator
-
-    new_entities: list[SensorEntity] = []
-    for device in coordinator.data.devices.values():
-        identifier = device.get_identifier()
-
-        for device_sensor in DEVICE_SENSORS:
-            if not device_sensor.supported(device):
-                _LOGGER.debug("Not creating %s sensor for device %s",
-                              device_sensor.entity_suffix, device.display_name())
-                continue
-            new_entities.append(
-                device_sensor(
-                    entity_id=async_generate_entity_id(
-                        ENTITY_ID_FORMAT,
-                        f"{identifier}_{device_sensor.entity_suffix}",
-                        hass=hass,
-                    ),
-                    coordinator=coordinator,
-                    device=device,
-                )
-            )
-
-        for device_channel in device.channels.values():
-            if device_channel.units not in (*TEMPERATURE_UNITS, HUMIDITY_UNIT):
-                _LOGGER.warning(
-                    "Unsupported sensor unit '%s' for device %s channel %s - skipping",
-                    device_channel.units,
-                    device.display_name(),
-                    device_channel.display_name()
-                )
-
-            for channel_sensor in CHANNEL_SENSORS:
-                if not channel_sensor.supported(device_channel):
-                    continue
-                new_entities.append(
-                    channel_sensor(
-                        entity_id=async_generate_entity_id(
-                            ENTITY_ID_FORMAT,
-                            f"{identifier}_ch_{device_channel.number}_{channel_sensor.entity_suffix}",
-                            hass=hass,
-                        ),
-                        coordinator=coordinator,
-                        device_serial=identifier,
-                        device_channel=device_channel,
-                    )
-                )
-
-    if len(new_entities) > 0:
-        _LOGGER.debug("New entities to create: %d", len(new_entities))
-        async_add_entities(new_entities)
-    else:
-        _LOGGER.debug("No new entities created")
+def _ha_unit(api_unit: str | None) -> str | None:
+    """Return the Home Assistant unit for an API unit, or None if it isn't known."""
+    return API_UNITS.get(api_unit)
 
 
 @dataclass(frozen=True)
@@ -129,7 +75,10 @@ class DeviceSensor[T](ThermoworksDeviceEntity[T], SensorEntity):
 
 
 class BatterySensor(DeviceSensor[BatteryReading]):
-    """Implementation of a sensor."""
+    """Battery level of the device, with a charging icon while it charges.
+
+    Also registers the device's details (name, model, firmware) in the device registry.
+    """
 
     entity_suffix = "battery"
 
@@ -190,13 +139,12 @@ class BatterySensor(DeviceSensor[BatteryReading]):
     @property
     def unique_id(self) -> str:
         """Return unique id."""
-        # All entities must have a unique id.  Think carefully what you want this to be as
-        # changing it later will cause HA to create new entities.
+        # Has no suffix, unlike the other device sensors. Changing it would orphan existing entities
         return f"{DOMAIN}-{format_mac(self._device.get_identifier())}"
 
 
 class SignalSensor(DeviceSensor[float]):
-    """Implementation of a sensor."""
+    """Signal strength of the device's connection, in dBm."""
 
     entity_suffix = "signal"
 
@@ -341,7 +289,8 @@ class FanSetTemperatureSensor(FanSensor):
     @property
     def native_unit_of_measurement(self) -> str | None:
         """Return unit of temperature."""
-        return TEMPERATURE_UNITS.get(self._device.device_display_units)
+        unit = _ha_unit(self._device.device_display_units)
+        return unit if unit in TEMPERATURE_UNITS else None
 
     @property
     def extra_state_attributes(self) -> dict[str, str]:
@@ -394,8 +343,7 @@ class ChannelSensor[T](ThermoworksChannelEntity[T], SensorEntity):
     @property
     def name(self) -> str:
         """Return the name of the sensor."""
-        # This is the name that will be shown in the Entity UI.
-        # It is the name of the channel, not the device.
+        # The channel's name, not the device's
         return self._device_channel.display_name().capitalize()
 
     @property
@@ -422,8 +370,8 @@ class ChannelSensor[T](ThermoworksChannelEntity[T], SensorEntity):
     @property
     def unique_id(self) -> str:
         """Return unique id."""
-        # All entities must have a unique id.  Think carefully what you want this to be as
-        # changing it later will cause HA to create new entities.
+        # Shared by a channel's measurement sensors, since a channel has only one. Subclasses
+        # for other values add a suffix. Changing this would orphan existing entities.
         return f"{DOMAIN}-{format_mac(self._device_serial)}-{self._device_channel.number}"
 
 
@@ -459,12 +407,12 @@ class TemperatureSensor(MeasurementSensor):
 
     @classmethod
     def supported(cls, channel: ThermoworksChannel) -> bool:
-        return channel.units in TEMPERATURE_UNITS
+        return _ha_unit(channel.units) in TEMPERATURE_UNITS
 
     @property
     def native_unit_of_measurement(self) -> str | None:
         """Return unit of temperature."""
-        return TEMPERATURE_UNITS.get(self._device_channel.units)
+        return _ha_unit(self._device_channel.units)
 
 
 class HumiditySensor(MeasurementSensor):
@@ -480,17 +428,18 @@ class HumiditySensor(MeasurementSensor):
     # https://developers.home-assistant.io/docs/internationalization/core/#name-of-entities
     _attr_translation_key = "humidity"
 
-    # API data is in percent
-    # https://developers.home-assistant.io/docs/core/entity/sensor#properties
-    _attr_native_unit_of_measurement = PERCENTAGE
-
     @classmethod
     def parse(cls, channel: ThermoworksChannel) -> float | None:
         return channel.reading if cls.supported(channel) else None
 
     @classmethod
     def supported(cls, channel: ThermoworksChannel) -> bool:
-        return channel.units == HUMIDITY_UNIT
+        return _ha_unit(channel.units) == PERCENTAGE
+
+    @property
+    def native_unit_of_measurement(self) -> str | None:
+        """Return unit of humidity."""
+        return _ha_unit(self._device_channel.units)
 
 
 class AlarmThresholdSensor(ChannelSensor[Alarm]):
@@ -504,7 +453,7 @@ class AlarmThresholdSensor(ChannelSensor[Alarm]):
     @property
     def device_class(self) -> SensorDeviceClass | None:
         """Return the alarm threshold device class."""
-        if self.native_unit_of_measurement in TEMPERATURE_UNITS.values():
+        if self.native_unit_of_measurement in TEMPERATURE_UNITS:
             return SensorDeviceClass.TEMPERATURE
         if self.native_unit_of_measurement == PERCENTAGE:
             return SensorDeviceClass.HUMIDITY
@@ -516,9 +465,7 @@ class AlarmThresholdSensor(ChannelSensor[Alarm]):
         """Return alarm threshold unit."""
         if self._value is None:
             return None
-        if self._value.units == HUMIDITY_UNIT:
-            return PERCENTAGE
-        return TEMPERATURE_UNITS.get(self._value.units)
+        return _ha_unit(self._value.units)
 
     @property
     def extra_state_attributes(self) -> dict[str, bool | None]:
@@ -583,7 +530,6 @@ class LowAlarmThresholdSensor(AlarmThresholdSensor):
         return f"{DOMAIN}-{format_mac(self._device_serial)}-{self._device_channel.number}-low-alarm-threshold"
 
 
-# Created in this order, which matters only when generated entity ids collide
 DEVICE_SENSORS: list[type[DeviceSensor]] = [
     BatterySensor,
     SignalSensor,
@@ -598,3 +544,67 @@ CHANNEL_SENSORS: list[type[ChannelSensor]] = [
     HighAlarmThresholdSensor,
     LowAlarmThresholdSensor,
 ]
+
+
+async def async_setup_entry(
+    hass: HomeAssistant,
+    config_entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    """Add sensors for passed config_entry in HA."""
+
+    coordinator: ThermoworksCoordinator = hass.data[DOMAIN][
+        config_entry.entry_id
+    ].coordinator
+
+    new_entities: list[SensorEntity] = []
+    for device in coordinator.data.devices.values():
+        identifier = device.get_identifier()
+
+        for device_sensor in DEVICE_SENSORS:
+            if not device_sensor.supported(device):
+                _LOGGER.debug("Not creating %s sensor for device %s",
+                              device_sensor.entity_suffix, device.display_name())
+                continue
+            new_entities.append(
+                device_sensor(
+                    entity_id=async_generate_entity_id(
+                        ENTITY_ID_FORMAT,
+                        f"{identifier}_{device_sensor.entity_suffix}",
+                        hass=hass,
+                    ),
+                    coordinator=coordinator,
+                    device=device,
+                )
+            )
+
+        for device_channel in device.channels.values():
+            if _ha_unit(device_channel.units) is None:
+                _LOGGER.warning(
+                    "Unsupported sensor unit '%s' for device %s channel %s - skipping",
+                    device_channel.units,
+                    device.display_name(),
+                    device_channel.display_name()
+                )
+
+            for channel_sensor in CHANNEL_SENSORS:
+                if not channel_sensor.supported(device_channel):
+                    continue
+                new_entities.append(
+                    channel_sensor(
+                        entity_id=async_generate_entity_id(
+                            ENTITY_ID_FORMAT,
+                            f"{identifier}_ch_{device_channel.number}_{channel_sensor.entity_suffix}",
+                            hass=hass,
+                        ),
+                        coordinator=coordinator,
+                        device_serial=identifier,
+                        device_channel=device_channel,
+                    )
+                )
+
+    if len(new_entities) > 0:
+        _LOGGER.debug("New entities to create: %d", len(new_entities))
+        async_add_entities(new_entities)
+    else:
+        _LOGGER.debug("No new entities created")
