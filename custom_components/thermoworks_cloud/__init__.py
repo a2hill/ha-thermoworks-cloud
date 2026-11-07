@@ -13,6 +13,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .const import DOMAIN
 from .coordinator import ThermoworksCoordinator
+from .devices import async_register_devices
 
 # The list of platforms provided by this integration
 PLATFORMS: list[Platform] = [Platform.BINARY_SENSOR, Platform.NUMBER, Platform.SENSOR]
@@ -37,6 +38,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Perform an initial data load from api.
     # async_config_entry_first_refresh() is special in that it does not log errors if it fails
     await coordinator.async_config_entry_first_refresh()
+
+    # Register devices now, so they exist with their details before entities attach to
+    # them, then again after every refresh to keep the details current (see devices.py)
+    async_register_devices(hass, entry, coordinator)
+    entry.async_on_unload(
+        coordinator.async_add_listener(
+            lambda: async_register_devices(hass, entry, coordinator)
+        )
+    )
 
     # Initialise a listener for config flow options changes.
     # See config_flow for defining an options setting that shows up as configure on the integration.

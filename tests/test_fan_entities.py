@@ -15,7 +15,7 @@ from custom_components.thermoworks_cloud.sensor import (
 
 
 def test_fan_entities_share_child_device_info() -> None:
-    """Fan accessory entities are grouped under a child fan device."""
+    """Fan accessory entities attach to the fan's own device."""
     coordinator = SimpleNamespace(last_update_success=True)
     device = ThermoworksDevice(
         serial="RFX123",
@@ -32,8 +32,6 @@ def test_fan_entities_share_child_device_info() -> None:
 
     assert connected.device_info == state.device_info == set_temperature.device_info
     assert connected.device_info["identifiers"] == {(DOMAIN, "RFX123-fan")}
-    assert connected.device_info["name"] == "RFX Gateway Fan"
-    assert connected.device_info["via_device"] == (DOMAIN, "RFX123")
     assert connected.is_on is True
     assert state.native_value == "Blowing"
     assert set_temperature.native_value == 150

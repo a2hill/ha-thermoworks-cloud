@@ -152,3 +152,13 @@ GET_DEVICES_NULL_BATTERY_RESPONSE["devices"][0].update({"battery": None, "wifiSi
 GET_DEVICES_NULL_BATTERY_RESPONSE["devices"][0]["channels"][0]["value"] = 5.0
 GET_DEVICES_NO_DEVICES_RESPONSE = deepcopy(GET_DEVICES_RESPONSE)
 GET_DEVICES_NO_DEVICES_RESPONSE["devices"] = []
+# Fan shape from the library's RFX gateway capture
+GET_DEVICES_FAN_RESPONSE = deepcopy(GET_DEVICES_RESPONSE)
+GET_DEVICES_FAN_RESPONSE["devices"][0]["fan"] = {
+    "connected": True, "channel": "1", "setTemp": 275, "state": 1,
+}
+GET_DEVICES_UNLABELED_FAN_RESPONSE = deepcopy(GET_DEVICES_FAN_RESPONSE)
+GET_DEVICES_UNLABELED_FAN_RESPONSE["devices"][0]["label"] = None
+# The device was renamed in the ThermoWorks app and got a firmware update
+GET_DEVICES_UPDATED_DETAILS_RESPONSE = deepcopy(GET_DEVICES_RESPONSE)
+GET_DEVICES_UPDATED_DETAILS_RESPONSE["devices"][0].update({"label": "Pantry", "firmware": "2.2.0"})

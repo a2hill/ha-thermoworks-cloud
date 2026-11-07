@@ -7,15 +7,15 @@ devices and channels as the API reports them, and know nothing about Home Assist
   rejected here, so nothing downstream has to check for them again.
 - Everything else stays optional because devices report different fields. Each entity decides
   what it needs from these types in its own `parse` method (see `entity.py`).
-- Values more than one entity depends on, such as whether a channel has a valid reading, are
-  defined once here as cached properties so the rule can't drift between entities. A new
-  object is built on every update, so a cached value never outlives the data it came from.
+- A field is kept raw only if something shows it as reported, like a channel's `status`.
+  Where there's a rule over a value, the rule runs on construction and only its result is
+  stored: a channel keeps `reading` but not the raw value. That way there's no path around
+  the rule, and it can't drift between the entities that depend on it.
 """
 
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import InitVar, dataclass, field
 from datetime import datetime
-from functools import cached_property
 from typing import Optional
 
 from homeassistant.util import dt as dt_util
@@ -41,7 +41,8 @@ class ThermoworksChannel:
 
     number: str
     units: str
-    value: Optional[float] = None
+    # The raw measurement. It's only used to compute `reading` and isn't stored.
+    value: InitVar[Optional[float]] = None
     status: Optional[str] = None
     label: Optional[str] = None
     alarm_high: Optional[Alarm] = None
@@ -52,6 +53,23 @@ class ThermoworksChannel:
     alarming: Optional[bool] = None
     last_telemetry_saved: Optional[datetime] = None
     last_seen: Optional[datetime] = None
+    # The measurement, or None when the channel reports it can't be trusted
+    reading: Optional[float] = field(init=False, default=None)
+
+    def __post_init__(self, value: Optional[float]) -> None:
+        """Apply the one definition of a valid reading.
+
+        The measurement and the alarm entities all depend on this. Unknown metadata
+        (None) is not treated as a failure, only an explicit one is.
+        """
+        valid = (
+            value is not None
+            and self.enabled is not False
+            and self.probe_failed is not True
+            and self.status != ChannelStatus.NO_PROBE
+        )
+        # Frozen, so set through object like dataclasses does
+        object.__setattr__(self, "reading", float(value) if valid else None)
 
     @classmethod
     def from_api_channel(cls, channel: DeviceChannel) -> "ThermoworksChannel":
@@ -76,23 +94,6 @@ class ThermoworksChannel:
             last_seen=channel.last_seen,
         )
 
-    @cached_property
-    def reading(self) -> float | None:
-        """Return the measurement, or None when the channel reports it can't be trusted.
-
-        This is the one definition of a valid reading. The measurement and the alarm
-        entities all use it. Unknown metadata (None) is not treated as a failure, only an
-        explicit one is.
-        """
-        if (
-            self.value is None
-            or self.enabled is False
-            or self.probe_failed is True
-            or self.status == ChannelStatus.NO_PROBE
-        ):
-            return None
-        return float(self.value)
-
     def display_name(self) -> str:
         """Return the display name of the channel."""
         # {user given name} (Ch. {channel number})
@@ -112,10 +113,19 @@ class ThermoworksDevice:
     battery: Optional[float] = None
     battery_state: Optional[str] = None
     signal_strength: Optional[float] = None
+    # Raw, because the fan connected sensor shows a disconnected fan as reported
     fan: Optional[Fan] = None
     last_seen: Optional[datetime] = None
     transmit_interval_in_seconds: Optional[int] = None
     channels: Mapping[str, ThermoworksChannel] = field(default_factory=dict)
+    # The fan only while it's connected. A disconnected fan still reports its last state
+    # and set temperature, which shouldn't be shown as current.
+    connected_fan: Optional[Fan] = field(init=False, default=None)
+
+    def __post_init__(self) -> None:
+        """Derive the connected fan from the raw fan."""
+        connected = self.fan is not None and self.fan.connected is True
+        object.__setattr__(self, "connected_fan", self.fan if connected else None)
 
     @classmethod
     def from_api_device(
@@ -141,17 +151,6 @@ class ThermoworksDevice:
             transmit_interval_in_seconds=device.transmit_interval_in_seconds,
             channels={channel.number: channel for channel in channels},
         )
-
-    @cached_property
-    def connected_fan(self) -> Fan | None:
-        """Return the fan accessory only while it's connected.
-
-        A disconnected fan still reports its last state and set temperature, which
-        shouldn't be shown as current.
-        """
-        if self.fan is None or self.fan.connected is not True:
-            return None
-        return self.fan
 
     def get_identifier(self) -> str:
         """Return the device identifier, preferring device_id but falling back to serial."""

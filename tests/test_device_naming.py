@@ -20,54 +20,7 @@ from custom_components.thermoworks_cloud.sensor import (
 
 
 class TestDeviceNaming(TestCase):
-    def test_device_names_use_the_cloud_label(self):
-        # Setup
-        device = ThermoworksDevice(
-            serial="RFX123", label="Patio BBQ", fan=Fan(connected=True)
-        )
-        coordinator = SimpleNamespace()
-
-        # Act
-        battery = BatterySensor("sensor.battery", coordinator, device)
-        fan = FanStateSensor("sensor.fan", coordinator, device)
-
-        # Assert
-        self.assertEqual(battery.device_info["name"], "Patio BBQ")
-        self.assertEqual(fan.device_info["name"], "Patio BBQ Fan")
-
-    def test_fan_name_falls_back_for_missing_or_empty_cloud_label(self):
-        # Setup
-        missing_label_device = ThermoworksDevice(
-            serial="RFX123",
-            label=None,
-            device_name="RFX Gateway",
-            fan=Fan(connected=True),
-        )
-        empty_label_device = ThermoworksDevice(
-            serial="RFX123",
-            label="",
-            device_name="RFX Gateway",
-            fan=Fan(connected=True),
-        )
-        coordinator = SimpleNamespace()
-
-        # Act
-        missing_label_fan = FanStateSensor(
-            "sensor.missing_label_fan", coordinator, missing_label_device
-        )
-        empty_label_fan = FanStateSensor(
-            "sensor.empty_label_fan", coordinator, empty_label_device
-        )
-
-        # Assert
-        self.assertEqual(
-            missing_label_fan.device_info["name"],
-            "unnamed device (RFX Gateway - RFX123) Fan",
-        )
-        self.assertEqual(
-            empty_label_fan.device_info["name"],
-            "unnamed device (RFX Gateway - RFX123) Fan",
-        )
+    # Device names come from the device registry, see test_api_client.py
 
     def test_channel_name_capitalization(self):
         # Setup

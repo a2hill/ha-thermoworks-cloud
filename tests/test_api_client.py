@@ -1,6 +1,6 @@
 """Test the integration end to end, from the ThermoWorks HTTP API to Home Assistant states."""
 
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 from typing import Any
 
@@ -36,6 +36,9 @@ from tests.api_test_object import (
     GET_DEVICES_CHARGING_RESPONSE,
     GET_DEVICES_NULL_BATTERY_RESPONSE,
     GET_DEVICES_NO_DEVICES_RESPONSE,
+    GET_DEVICES_FAN_RESPONSE,
+    GET_DEVICES_UNLABELED_FAN_RESPONSE,
+    GET_DEVICES_UPDATED_DETAILS_RESPONSE,
     GET_DEVICES_NO_CHANNELS_RESPONSE,
     GET_DEVICES_DISABLED_CHANNEL_RESPONSE,
     GET_DEVICES_UNKNOWN_CHANNEL_METADATA_RESPONSE,
@@ -785,3 +788,130 @@ async def test_missing_device_becomes_unavailable_and_recovers(
         state = hass.states.get(entity_id)
         assert state is not None
         assert state.state != "unavailable", entity_id
+
+
+def _registered_device(hass: HomeAssistant, entry: MockConfigEntry, identifier: str):
+    """Return the device registry entry for an identifier."""
+    device = dr.async_get(hass).async_get_device_by_identifier(
+        (DOMAIN, identifier), config_entry_id=entry.entry_id
+    )
+    assert device is not None
+    return device
+
+
+async def test_devices_are_registered_with_their_details(
+    hass: HomeAssistant, api_test_object: ApiTestObject
+) -> None:
+    """Every device is registered with its details from the API."""
+
+    # Setup
+    entry = _api_key_entry(hass)
+    api_device = GET_DEVICES_RESPONSE["devices"][0]
+
+    # Act
+    await _set_up(hass, entry)
+
+    # Assert
+    device = _registered_device(hass, entry, dr.format_mac(TEST_SERIAL))
+    assert device.name == api_device["label"]
+    assert device.manufacturer == "ThermoWorks"
+    assert device.model == api_device["model"]
+    assert device.sw_version == api_device["firmware"]
+    assert device.serial_number == api_device["serial"]
+
+
+async def test_device_without_battery_is_still_named(
+    hass: HomeAssistant, api_test_object: ApiTestObject
+) -> None:
+    """A device's details don't depend on which entities it has."""
+
+    # Setup
+    entry = _api_key_entry(hass)
+    api_test_object.respond_to_devices(body=GET_DEVICES_NULL_BATTERY_RESPONSE)
+
+    # Act
+    await _set_up(hass, entry)
+
+    # Assert
+    assert hass.states.get(BATTERY_ENTITY) is None
+    device = _registered_device(hass, entry, dr.format_mac(TEST_SERIAL))
+    assert device.name == GET_DEVICES_RESPONSE["devices"][0]["label"]
+
+
+async def test_device_details_update_after_a_refresh(
+    hass: HomeAssistant, api_test_object: ApiTestObject
+) -> None:
+    """A rename or firmware update shows up without a reload, keeping the user's own name."""
+
+    # Setup
+    entry = _api_key_entry(hass)
+    await _set_up(hass, entry)
+    registry = dr.async_get(hass)
+    device = _registered_device(hass, entry, dr.format_mac(TEST_SERIAL))
+    registry.async_update_device(device.id, name_by_user="My freezer")
+    api_test_object.respond_to_devices(body=GET_DEVICES_UPDATED_DETAILS_RESPONSE)
+
+    # Act
+    await _poll(hass)
+
+    # Assert
+    updated = _registered_device(hass, entry, dr.format_mac(TEST_SERIAL))
+    assert updated.name == "Pantry"
+    assert updated.sw_version == "2.2.0"
+    assert updated.name_by_user == "My freezer"
+
+
+@pytest.mark.parametrize(
+    ("response", "fan_name"),
+    [
+        pytest.param(GET_DEVICES_FAN_RESPONSE, "Kitchen Fan", id="labeled"),
+        pytest.param(
+            GET_DEVICES_UNLABELED_FAN_RESPONSE,
+            f"unnamed device (node - {TEST_SERIAL}) Fan",
+            id="unlabeled",
+        ),
+    ],
+)
+async def test_fan_is_registered_under_its_gateway(
+    hass: HomeAssistant,
+    api_test_object: ApiTestObject,
+    response: dict[str, Any],
+    fan_name: str,
+) -> None:
+    """The fan accessory is its own device, named after and connected through its gateway."""
+
+    # Setup
+    entry = _api_key_entry(hass)
+    api_test_object.respond_to_devices(body=response)
+
+    # Act
+    await _set_up(hass, entry)
+
+    # Assert
+    gateway = _registered_device(hass, entry, dr.format_mac(TEST_SERIAL))
+    fan = _registered_device(hass, entry, f"{dr.format_mac(TEST_SERIAL)}-fan")
+    assert fan.name == fan_name
+    assert fan.via_device_id == gateway.id
+    fan_state = hass.states.get("sensor.12_34_56_78_90_ab_fan_state")
+    assert fan_state is not None
+    assert fan_state.state == "Blowing"
+
+
+async def test_last_seen_is_reported_in_utc(
+    hass: HomeAssistant, api_test_object: ApiTestObject
+) -> None:
+    """The API's last seen timestamp reaches the sensor as an aware UTC time."""
+
+    # Setup
+    entry = _api_key_entry(hass)
+
+    # Act
+    await _set_up(hass, entry)
+
+    # Assert
+    state = hass.states.get("sensor.12_34_56_78_90_ab_last_seen")
+    assert state is not None
+    # Home Assistant shows timestamps to the second
+    assert dt_util.parse_datetime(state.state) == datetime(
+        2026, 11, 4, 3, 54, 28, tzinfo=timezone.utc
+    )
