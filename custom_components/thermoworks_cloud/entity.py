@@ -6,25 +6,24 @@ Every entity follows the same rules:
   or its fan accessory) and passes it to its own `parse` method. `parse` returns a view: a small
   frozen dataclass holding everything the entity shows. Entity properties read only from the
   view, never from the source, so each entity's dependencies are written down in one place.
+- `parse` returns None when the source doesn't have this entity at all (a device with no
+  battery, a channel with no high alarm). Entities are only created where `parse` returns a
+  view, and an existing entity whose source stops having it becomes unavailable.
 - A view has two parts. Its `entity_state` is each entity's own type holding what it
   currently reads (the value and anything shown about it, like Home Assistant's state and
   attributes), and is None when the source can't give one right now. The rest describes
   what the entity is (name, unit, ...) and is always there, because Home Assistant shows
   those even while an entity is unavailable.
 - An entity is unavailable when the coordinator update failed, its source is gone from the
-  API, or its view has no entity state. It recovers on the next update that has one. A
-  stale entity state is never shown as current. When the source is gone, the last view is
-  kept for the description.
+  API, `parse` returned None, or its view has no entity state. It recovers on the next update that has one. A
+  stale entity state is never shown as current. Without a new view, the last one is kept
+  for the description.
 - A value Home Assistant should show as unknown is part of the entity state, for entities
   where that happens (e.g. a fan that doesn't report whether it's connected).
 - Identity lives here. Each entity attaches to the device registered under its source's
   `registry_identifier` (see `devices.py`), and builds its unique id from it. Entities never
-  build identifiers themselves. Each class only declares its suffixes, so the entity id and
-  unique id formats can't diverge between classes.
-
-`supported` decides whether an entity is created at setup. By default it's created when
-`parse` gives an entity state, but some entities override it so they're still created when
-the value is missing at first (a channel with no reading yet, for example).
+  build identifiers themselves. Each class only declares a suffix, used for both the entity
+  id and unique id, so the two can't diverge.
 
 State is written on every update so availability changes always reach Home Assistant.
 Nothing here raises: an exception from a listener would skip that entity's state write and
@@ -65,11 +64,11 @@ class ThermoworksEntity[S, R](CoordinatorEntity[ThermoworksCoordinator]):
 
     # Set by each platform's base class, e.g. "sensor.{}"
     entity_id_format: ClassVar[str]
-    # Ends the entity id: ..._{entity_suffix}
-    entity_suffix: ClassVar[str]
-    # Ends the unique id: ...-{unique_id_suffix}. None for entities whose unique id was
-    # created without one, which can't change without orphaning existing entities.
-    unique_id_suffix: ClassVar[str | None]
+    # Ends both ids. The entity id is generated as a slug, so "last-seen" becomes "last_seen".
+    suffix: ClassVar[str]
+    # False only for entities whose unique id was created without the suffix, which can't
+    # change without orphaning existing entities
+    unique_id_has_suffix: ClassVar[bool] = True
 
     _view: View[R]
 
@@ -82,7 +81,8 @@ class ThermoworksEntity[S, R](CoordinatorEntity[ThermoworksCoordinator]):
     ) -> None:
         """Initialise the entity from the source it was discovered on.
 
-        `registry_identifier` is the source's, taken from the parsed model.
+        `registry_identifier` is the source's, taken from the parsed model. Only create an
+        entity for a source that has it (see `build`).
         """
         super().__init__(coordinator)
         self.entity_id = entity_id
@@ -92,21 +92,19 @@ class ThermoworksEntity[S, R](CoordinatorEntity[ThermoworksCoordinator]):
                 DOMAIN,
                 registry_identifier,
                 *self._unique_id_parts(),
-                *filter(None, [self.unique_id_suffix]),
+                *([self.suffix] if self.unique_id_has_suffix else []),
             ]
         )
-        self._source_found = True
-        self._view = self.parse(source)
+        view = self.parse(source)
+        if view is None:
+            raise ValueError(f"{type(self).__name__} doesn't apply to {source}")
+        self._view = view
+        self._has_new_view = True
 
     @classmethod
     @abstractmethod
-    def parse(cls, source: S) -> View[R]:
-        """Return everything this entity shows, parsed from its source."""
-
-    @classmethod
-    def supported(cls, source: S) -> bool:
-        """Return whether to create this entity for the source at setup."""
-        return cls.parse(source).entity_state is not None
+    def parse(cls, source: S) -> View[R] | None:
+        """Return everything this entity shows, or None if the source doesn't have it."""
 
     def _unique_id_parts(self) -> list[str]:
         """Return any parts of the unique id between the registry identifier and suffix."""
@@ -136,7 +134,7 @@ class ThermoworksEntity[S, R](CoordinatorEntity[ThermoworksCoordinator]):
         """Return whether the latest update gave this entity an entity state."""
         return (
             super().available
-            and self._source_found
+            and self._has_new_view
             and self._view.entity_state is not None
         )
 
@@ -144,9 +142,10 @@ class ThermoworksEntity[S, R](CoordinatorEntity[ThermoworksCoordinator]):
     def _handle_coordinator_update(self) -> None:
         """Parse a new view from the latest data and write state either way."""
         source = self._find_source(self.coordinator.data)
-        self._source_found = source is not None
-        if source is not None:
-            self._view = self.parse(source)
+        view = self.parse(source) if source is not None else None
+        self._has_new_view = view is not None
+        if view is not None:
+            self._view = view
         self.async_write_ha_state()
 
 
@@ -166,9 +165,11 @@ class ThermoworksDeviceEntity[R](ThermoworksEntity[ThermoworksDevice, R]):
     @classmethod
     def build(
         cls, hass: HomeAssistant, coordinator: ThermoworksCoordinator, device: ThermoworksDevice
-    ) -> Self:
-        """Create the entity with an entity id generated from its identity."""
-        object_id = f"{device.get_identifier()}_{cls.entity_suffix}"
+    ) -> Self | None:
+        """Create the entity, with an entity id generated from its identity, if it applies."""
+        if cls.parse(device) is None:
+            return None
+        object_id = f"{device.get_identifier()}_{cls.suffix}"
         return cls(
             async_generate_entity_id(cls.entity_id_format, object_id, hass=hass),
             coordinator,
@@ -203,9 +204,11 @@ class ThermoworksChannelEntity[R](ThermoworksEntity[ThermoworksChannel, R]):
         coordinator: ThermoworksCoordinator,
         device: ThermoworksDevice,
         device_channel: ThermoworksChannel,
-    ) -> Self:
-        """Create the entity with an entity id generated from its identity."""
-        object_id = f"{device.get_identifier()}_ch_{device_channel.number}_{cls.entity_suffix}"
+    ) -> Self | None:
+        """Create the entity, with an entity id generated from its identity, if it applies."""
+        if cls.parse(device_channel) is None:
+            return None
+        object_id = f"{device.get_identifier()}_ch_{device_channel.number}_{cls.suffix}"
         return cls(
             async_generate_entity_id(cls.entity_id_format, object_id, hass=hass),
             coordinator,
@@ -238,9 +241,11 @@ class ThermoworksFanEntity[R](ThermoworksEntity[ThermoworksFan, R]):
     @classmethod
     def build(
         cls, hass: HomeAssistant, coordinator: ThermoworksCoordinator, device: ThermoworksDevice
-    ) -> Self:
-        """Create the entity with an entity id generated from its identity."""
-        object_id = f"{device.get_identifier()}_fan_{cls.entity_suffix}"
+    ) -> Self | None:
+        """Create the entity, with an entity id generated from its identity, if it applies."""
+        if device.fan is None or cls.parse(device.fan) is None:
+            return None
+        object_id = f"{device.get_identifier()}_fan_{cls.suffix}"
         return cls(
             async_generate_entity_id(cls.entity_id_format, object_id, hass=hass),
             coordinator,

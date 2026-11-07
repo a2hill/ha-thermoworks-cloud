@@ -31,15 +31,14 @@ async def async_setup_entry(
 
     new_entities: list[BinarySensorEntity] = []
     for device in coordinator.data.devices.values():
-        if device.fan is not None:
-            new_entities.append(FanConnectedSensor.build(hass, coordinator, device))
+        if (fan_connected := FanConnectedSensor.build(hass, coordinator, device)) is not None:
+            new_entities.append(fan_connected)
 
         for device_channel in device.channels.values():
             for alarm_sensor in (HighAlarmBinarySensor, LowAlarmBinarySensor):
-                if alarm_sensor.supported(device_channel):
-                    new_entities.append(
-                        alarm_sensor.build(hass, coordinator, device, device_channel)
-                    )
+                entity = alarm_sensor.build(hass, coordinator, device, device_channel)
+                if entity is not None:
+                    new_entities.append(entity)
 
     async_add_entities(new_entities)
 
@@ -59,8 +58,7 @@ class FanConnectedSensor(ThermoworksFanEntity[FanConnection], BinarySensorEntity
     """
 
     entity_id_format = ENTITY_ID_FORMAT
-    entity_suffix = "connected"
-    unique_id_suffix = "connected"
+    suffix = "connected"
 
     _attr_device_class = BinarySensorDeviceClass.CONNECTIVITY
     _attr_has_entity_name = True
@@ -104,9 +102,11 @@ class AlarmBinarySensor(ThermoworksChannelEntity[AlarmState], BinarySensorEntity
         """Return the alarm this sensor shows."""
 
     @classmethod
-    def parse(cls, channel: ThermoworksChannel) -> ChannelView[AlarmState]:
+    def parse(cls, channel: ThermoworksChannel) -> ChannelView[AlarmState] | None:
         alarm = cls._alarm(channel)
-        if alarm is None or channel.reading is None:
+        if alarm is None:
+            return None
+        if channel.reading is None:
             return ChannelView(entity_state=None, name=channel.display_name())
         return ChannelView(
             entity_state=AlarmState(
@@ -117,10 +117,6 @@ class AlarmBinarySensor(ThermoworksChannelEntity[AlarmState], BinarySensorEntity
             ),
             name=channel.display_name(),
         )
-
-    @classmethod
-    def supported(cls, channel: ThermoworksChannel) -> bool:
-        return cls._alarm(channel) is not None
 
     @property
     def extra_state_attributes(self) -> dict[str, bool | float | str | None]:
@@ -140,8 +136,7 @@ class AlarmBinarySensor(ThermoworksChannelEntity[AlarmState], BinarySensorEntity
 class HighAlarmBinarySensor(AlarmBinarySensor):
     """Whether the channel's high alarm is going off."""
 
-    entity_suffix = "high_alarm"
-    unique_id_suffix = "high-alarm"
+    suffix = "high-alarm"
 
     _attr_translation_key = "high_alarm"
 
@@ -158,8 +153,7 @@ class HighAlarmBinarySensor(AlarmBinarySensor):
 class LowAlarmBinarySensor(AlarmBinarySensor):
     """Whether the channel's low alarm is going off."""
 
-    entity_suffix = "low_alarm"
-    unique_id_suffix = "low-alarm"
+    suffix = "low-alarm"
 
     _attr_translation_key = "low_alarm"
 

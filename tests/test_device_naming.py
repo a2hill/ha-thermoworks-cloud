@@ -3,7 +3,7 @@
 from types import SimpleNamespace
 from unittest import TestCase
 
-from thermoworks_cloud.models import Device, Fan
+from thermoworks_cloud.models import Alarm, Device, Fan
 
 from custom_components.thermoworks_cloud.binary_sensor import HighAlarmBinarySensor
 from custom_components.thermoworks_cloud.models import (
@@ -19,6 +19,8 @@ from custom_components.thermoworks_cloud.sensor import (
 )
 
 RFX_DEVICE = ThermoworksDevice(serial="RFX123")
+# Alarm entities only apply to channels that have the alarm
+HIGH_ALARM = Alarm(enabled=True, alarming=False, value=200, units="F")
 
 
 class TestDeviceNaming(TestCase):
@@ -27,13 +29,15 @@ class TestDeviceNaming(TestCase):
     def test_channel_name_capitalization(self):
         # Setup
         temperature_channel = ThermoworksChannel(
-            number="1", value=100, units="F", status="ok", label="PORK Shoulder"
+            number="1", value=100, units="F", status="ok", label="PORK Shoulder",
+            alarm_high=HIGH_ALARM,
         )
         humidity_channel = ThermoworksChannel(
             number="2", value=50, units="H", status="ok", label="dry box"
         )
         alarm_channel = ThermoworksChannel(
-            number="3", value=200, units="F", status="ok", label="Air TEMP"
+            number="3", value=200, units="F", status="ok", label="Air TEMP",
+            alarm_high=HIGH_ALARM,
         )
         coordinator = SimpleNamespace()
 
@@ -60,10 +64,12 @@ class TestDeviceNaming(TestCase):
     def test_channel_names_fall_back_for_missing_or_empty_label(self):
         # Setup
         missing_label_channel = ThermoworksChannel(
-            number="1", value=100, units="F", status="ok", label=None
+            number="1", value=100, units="F", status="ok", label=None,
+            alarm_high=HIGH_ALARM,
         )
         empty_label_channel = ThermoworksChannel(
-            number="2", value=100, units="F", status="ok", label=""
+            number="2", value=100, units="F", status="ok", label="",
+            alarm_high=HIGH_ALARM,
         )
         coordinator = SimpleNamespace()
 
@@ -113,11 +119,10 @@ class TestDeviceNaming(TestCase):
 
     def test_entity_identity_uses_device_id_when_available(self):
         # Setup
-        device = ThermoworksDevice(
-            serial="RFX123", device_id="AABBCCDDEEFF"
-        )
+        device = ThermoworksDevice(serial="RFX123", device_id="AABBCCDDEEFF", battery=50)
         channel = ThermoworksChannel(
-            number="1", value=100, units="F", status="ok", label="Probe"
+            number="1", value=100, units="F", status="ok", label="Probe",
+            alarm_high=HIGH_ALARM,
         )
         coordinator = SimpleNamespace()
 
@@ -149,11 +154,10 @@ class TestDeviceNaming(TestCase):
 
     def test_entity_identity_falls_back_to_serial_when_device_id_is_missing(self):
         # Setup
-        device = ThermoworksDevice(
-            serial="RFX123", device_id=None
-        )
+        device = ThermoworksDevice(serial="RFX123", device_id=None, battery=50)
         channel = ThermoworksChannel(
-            number="1", value=100, units="F", status="ok", label="Probe"
+            number="1", value=100, units="F", status="ok", label="Probe",
+            alarm_high=HIGH_ALARM,
         )
         coordinator = SimpleNamespace()
 
