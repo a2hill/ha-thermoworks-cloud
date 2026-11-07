@@ -6,17 +6,21 @@ Every entity follows the same rules:
   and passes it to its own `parse` method. `parse` returns a view: a small frozen dataclass
   holding everything the entity shows. Entity properties read only from the view, never from
   the source, so each entity's dependencies are written down in one place.
-- A view's `state` is None when the source can't provide a value right now. That, or a
-  source the API no longer returns, makes the entity unavailable until a later update
-  provides one. A stale state is never shown as current.
-- The rest of the view (name, unit, ...) is there even without a state, because Home
-  Assistant still reads those while an entity is unavailable. When the source disappears,
-  the last view is kept for them.
+- A view has two parts. Its `reading` groups what the entity currently reads (the value and
+  anything shown about it), and is None when the source can't give a reading right now.
+  The rest describes what the entity is (name, unit, ...) and is always there, because Home
+  Assistant shows those even while an entity is unavailable.
+- An entity is unavailable when the coordinator update failed, its source is gone from the
+  API, or its view has no reading. It recovers on the next update that has one. A stale
+  reading is never shown as current. When the source is gone, the last view is kept for
+  the description.
+- A value Home Assistant should show as unknown is part of the reading, for entities where
+  that happens (e.g. a fan that doesn't report whether it's connected).
 - Identity lives here. Each class declares its suffixes, and the base class builds the
   entity id and unique id from them, so the two formats can't diverge between classes.
 
 `supported` decides whether an entity is created at setup. By default it's created when
-`parse` gives a state, but some entities override it so they're still created when the value
+`parse` gives a reading, but some entities override it so they're still created when the value
 is missing at first (a channel with no reading yet, for example).
 
 State is written on every update so availability changes always reach Home Assistant.
@@ -39,20 +43,21 @@ from .models import ThermoworksChannel, ThermoworksDevice
 
 
 @dataclass(frozen=True)
-class View[T]:
-    """What an entity shows. A None state makes the entity unavailable."""
+class View[R]:
+    """What an entity shows. Subclasses add the fields that describe the entity."""
 
-    state: T | None
+    # What the entity currently reads, or None if the source can't give a reading
+    reading: R | None
 
 
 @dataclass(frozen=True)
-class ChannelView[T](View[T]):
+class ChannelView[R](View[R]):
     """What a channel entity shows. Every channel entity is named after its channel."""
 
     name: str
 
 
-class ThermoworksEntity[S, T](CoordinatorEntity[ThermoworksCoordinator]):
+class ThermoworksEntity[S, R](CoordinatorEntity[ThermoworksCoordinator]):
     """Parses a view from its source on every update and shows only what's in it."""
 
     # Set by each platform's base class, e.g. "sensor.{}"
@@ -63,7 +68,7 @@ class ThermoworksEntity[S, T](CoordinatorEntity[ThermoworksCoordinator]):
     # created without one, which can't change without orphaning existing entities.
     unique_id_suffix: ClassVar[str | None]
 
-    _view: View[T]
+    _view: View[R]
 
     def __init__(
         self, entity_id: str, coordinator: ThermoworksCoordinator, source: S
@@ -79,13 +84,13 @@ class ThermoworksEntity[S, T](CoordinatorEntity[ThermoworksCoordinator]):
 
     @classmethod
     @abstractmethod
-    def parse(cls, source: S) -> View[T]:
+    def parse(cls, source: S) -> View[R]:
         """Return everything this entity shows, parsed from its source."""
 
     @classmethod
     def supported(cls, source: S) -> bool:
         """Return whether to create this entity for the source at setup."""
-        return cls.parse(source).state is not None
+        return cls.parse(source).reading is not None
 
     @abstractmethod
     def _unique_id_parts(self) -> list[str]:
@@ -96,19 +101,19 @@ class ThermoworksEntity[S, T](CoordinatorEntity[ThermoworksCoordinator]):
         """Return this entity's source from the latest data, or None if it's gone."""
 
     @property
-    def _state(self) -> T:
-        """Return the current state.
+    def _reading(self) -> R:
+        """Return the current reading.
 
-        Only read by properties Home Assistant uses while the entity is available, which
-        is exactly when the state isn't None.
+        Only for properties Home Assistant reads while the entity is available (state and
+        attributes), which is exactly when there's a reading.
         """
-        assert self._view.state is not None
-        return self._view.state
+        assert self._view.reading is not None
+        return self._view.reading
 
     @property
     def available(self) -> bool:
-        """Return whether the latest update gave this entity a state."""
-        return super().available and self._source_found and self._view.state is not None
+        """Return whether the latest update gave this entity a reading."""
+        return super().available and self._source_found and self._view.reading is not None
 
     @callback
     def _handle_coordinator_update(self) -> None:
@@ -120,7 +125,7 @@ class ThermoworksEntity[S, T](CoordinatorEntity[ThermoworksCoordinator]):
         self.async_write_ha_state()
 
 
-class ThermoworksDeviceEntity[T](ThermoworksEntity[ThermoworksDevice, T]):
+class ThermoworksDeviceEntity[R](ThermoworksEntity[ThermoworksDevice, R]):
     """An entity whose value comes from one device."""
 
     def __init__(
@@ -157,10 +162,10 @@ class ThermoworksDeviceEntity[T](ThermoworksEntity[ThermoworksDevice, T]):
         return DeviceInfo(identifiers={(DOMAIN, format_mac(self._device_identifier))})
 
 
-class ThermoworksChannelEntity[T](ThermoworksEntity[ThermoworksChannel, T]):
+class ThermoworksChannelEntity[R](ThermoworksEntity[ThermoworksChannel, R]):
     """An entity whose value comes from one channel of a device."""
 
-    _view: ChannelView[T]
+    _view: ChannelView[R]
 
     def __init__(
         self,

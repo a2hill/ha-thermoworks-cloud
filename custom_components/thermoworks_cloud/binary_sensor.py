@@ -47,7 +47,14 @@ async def async_setup_entry(
     async_add_entities(new_entities)
 
 
-class FanConnectedSensor(ThermoworksDeviceEntity[bool], BinarySensorEntity):
+@dataclass(frozen=True)
+class FanConnection:
+    """Whether the fan is connected. None if it doesn't say, shown as unknown."""
+
+    connected: bool | None
+
+
+class FanConnectedSensor(ThermoworksDeviceEntity[FanConnection], BinarySensorEntity):
     """Whether the fan accessory is connected.
 
     Unlike the fan sensors, this stays available while the fan is disconnected, since
@@ -63,8 +70,9 @@ class FanConnectedSensor(ThermoworksDeviceEntity[bool], BinarySensorEntity):
     _attr_translation_key = "fan_connected"
 
     @classmethod
-    def parse(cls, device: ThermoworksDevice) -> View[bool]:
-        return View(state=device.fan.connected if device.fan is not None else None)
+    def parse(cls, device: ThermoworksDevice) -> View[FanConnection]:
+        fan = device.fan
+        return View(reading=FanConnection(fan.connected) if fan is not None else None)
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -72,21 +80,22 @@ class FanConnectedSensor(ThermoworksDeviceEntity[bool], BinarySensorEntity):
         return DeviceInfo(identifiers={(DOMAIN, f"{format_mac(self._device_identifier)}-fan")})
 
     @property
-    def is_on(self) -> bool:
+    def is_on(self) -> bool | None:
         """Return true if the fan accessory is connected."""
-        return self._state
+        return self._reading.connected
 
 
 @dataclass(frozen=True)
-class AlarmView(ChannelView[bool]):
+class AlarmState:
     """Whether an alarm is going off, plus its configuration."""
 
+    active: bool
     enabled: bool | None
     value: float | None
     units: str | None
 
 
-class AlarmBinarySensor(ThermoworksChannelEntity[bool], BinarySensorEntity):
+class AlarmBinarySensor(ThermoworksChannelEntity[AlarmState], BinarySensorEntity):
     """Base class for Thermoworks channel alarm binary sensors.
 
     Created when the channel has the alarm, but only available while the channel has a
@@ -94,8 +103,6 @@ class AlarmBinarySensor(ThermoworksChannelEntity[bool], BinarySensorEntity):
     """
 
     entity_id_format = ENTITY_ID_FORMAT
-
-    _view: AlarmView
 
     _attr_device_class = BinarySensorDeviceClass.PROBLEM
     _attr_has_entity_name = True
@@ -106,17 +113,18 @@ class AlarmBinarySensor(ThermoworksChannelEntity[bool], BinarySensorEntity):
         """Return the alarm this sensor shows."""
 
     @classmethod
-    def parse(cls, channel: ThermoworksChannel) -> AlarmView:
+    def parse(cls, channel: ThermoworksChannel) -> ChannelView[AlarmState]:
         alarm = cls._alarm(channel)
-        active = None
-        if alarm is not None and channel.reading is not None:
-            active = alarm.enabled is True and alarm.alarming is True
-        return AlarmView(
-            state=active,
+        if alarm is None or channel.reading is None:
+            return ChannelView(reading=None, name=channel.display_name())
+        return ChannelView(
+            reading=AlarmState(
+                active=alarm.enabled is True and alarm.alarming is True,
+                enabled=alarm.enabled,
+                value=alarm.value,
+                units=alarm.units,
+            ),
             name=channel.display_name(),
-            enabled=alarm.enabled if alarm is not None else None,
-            value=alarm.value if alarm is not None else None,
-            units=alarm.units if alarm is not None else None,
         )
 
     @classmethod
@@ -127,15 +135,15 @@ class AlarmBinarySensor(ThermoworksChannelEntity[bool], BinarySensorEntity):
     def extra_state_attributes(self) -> dict[str, bool | float | str | None]:
         """Return alarm metadata."""
         return {
-            "enabled": self._view.enabled,
-            "value": self._view.value,
-            "units": self._view.units,
+            "enabled": self._reading.enabled,
+            "value": self._reading.value,
+            "units": self._reading.units,
         }
 
     @property
     def is_on(self) -> bool:
         """Return true if the alarm is active."""
-        return self._state
+        return self._reading.active
 
 
 class HighAlarmBinarySensor(AlarmBinarySensor):

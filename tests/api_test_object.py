@@ -162,3 +162,9 @@ GET_DEVICES_UNLABELED_FAN_RESPONSE["devices"][0]["label"] = None
 # The device was renamed in the ThermoWorks app and got a firmware update
 GET_DEVICES_UPDATED_DETAILS_RESPONSE = deepcopy(GET_DEVICES_RESPONSE)
 GET_DEVICES_UPDATED_DETAILS_RESPONSE["devices"][0].update({"label": "Pantry", "firmware": "2.2.0"})
+# A connected fan that doesn't say what it's doing
+GET_DEVICES_FAN_NO_STATE_RESPONSE = deepcopy(GET_DEVICES_FAN_RESPONSE)
+GET_DEVICES_FAN_NO_STATE_RESPONSE["devices"][0]["fan"]["state"] = None
+# A fan that doesn't say whether it's connected
+GET_DEVICES_FAN_NO_CONNECTION_RESPONSE = deepcopy(GET_DEVICES_FAN_RESPONSE)
+GET_DEVICES_FAN_NO_CONNECTION_RESPONSE["devices"][0]["fan"]["connected"] = None

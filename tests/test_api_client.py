@@ -37,6 +37,8 @@ from tests.api_test_object import (
     GET_DEVICES_NULL_BATTERY_RESPONSE,
     GET_DEVICES_NO_DEVICES_RESPONSE,
     GET_DEVICES_FAN_RESPONSE,
+    GET_DEVICES_FAN_NO_STATE_RESPONSE,
+    GET_DEVICES_FAN_NO_CONNECTION_RESPONSE,
     GET_DEVICES_UNLABELED_FAN_RESPONSE,
     GET_DEVICES_UPDATED_DETAILS_RESPONSE,
     GET_DEVICES_NO_CHANNELS_RESPONSE,
@@ -915,3 +917,44 @@ async def test_last_seen_is_reported_in_utc(
     assert dt_util.parse_datetime(state.state) == datetime(
         2026, 11, 4, 3, 54, 28, tzinfo=timezone.utc
     )
+
+
+@pytest.mark.parametrize(
+    ("response", "expected"),
+    [
+        pytest.param(
+            GET_DEVICES_FAN_NO_STATE_RESPONSE,
+            {"binary_sensor.12_34_56_78_90_ab_fan_connected": "on",
+             "sensor.12_34_56_78_90_ab_fan_state": "unknown"},
+            id="no-fan-state",
+        ),
+        pytest.param(
+            GET_DEVICES_FAN_NO_CONNECTION_RESPONSE,
+            {"binary_sensor.12_34_56_78_90_ab_fan_connected": "unknown",
+             # Not known to be connected, so its values aren't shown as current
+             "sensor.12_34_56_78_90_ab_fan_state": "unavailable"},
+            id="no-fan-connection",
+        ),
+    ],
+)
+async def test_unreported_fan_values_are_unknown(
+    hass: HomeAssistant,
+    api_test_object: ApiTestObject,
+    response: dict[str, Any],
+    expected: dict[str, str],
+) -> None:
+    """A value the fan doesn't report is unknown, not unavailable."""
+
+    # Setup
+    entry = _api_key_entry(hass)
+    api_test_object.respond_to_devices(body=response)
+
+    # Act
+    await _set_up(hass, entry)
+
+    # Assert
+    for entity_id, value in expected.items():
+        state = hass.states.get(entity_id)
+        assert state is not None, entity_id
+        assert state.state == value, entity_id
+
