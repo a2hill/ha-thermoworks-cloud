@@ -81,7 +81,7 @@ class ThermoworksDevice(BaseDevice):
             serial=device.serial,
             battery=device.battery,
             # Optional; drives the charging icon on the battery sensor
-            battery_state=getattr(device, "battery_state", None),
+            battery_state=device.battery_state,
             wifi_strength=device.wifi_strength,
             signal_strength=device.signal_strength,
             fan=getattr(device, "fan", None),
