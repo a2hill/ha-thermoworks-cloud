@@ -1,5 +1,11 @@
-"""Sensors representing a Thermoworks thermometer."""
+"""Sensors representing a Thermoworks thermometer.
+
+Each sensor's `parse` method says what it needs from a device or channel, and the base
+classes in `entity.py` handle updates and availability the same way for all of them.
+"""
 from collections.abc import Mapping
+from dataclasses import dataclass
+from datetime import datetime
 import logging
 
 from homeassistant.components.sensor import (
@@ -10,30 +16,22 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import PERCENTAGE, SIGNAL_STRENGTH_DECIBELS_MILLIWATT, UnitOfTemperature, UnitOfTime
-from homeassistant.core import HomeAssistant, callback
-from homeassistant.util import dt as dt_util
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import format_mac, DeviceInfo
 from homeassistant.helpers.entity import async_generate_entity_id
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.update_coordinator import CoordinatorEntity, UpdateFailed
+from thermoworks_cloud.models import Alarm, Fan
 
 from .const import DOMAIN
-
-from .models import (
-    ChannelWithHighAlarm,
-    ChannelWithLowAlarm,
-    DeviceWithBattery,
-    DeviceWithFan,
-    DeviceWithLastSeen,
-    DeviceWithSignalStrength,
-    DeviceWithTransmitInterval,
-    ThermoworksChannel,
-    get_missing_attributes,
-)
-
 from .coordinator import ThermoworksCoordinator
+from .entity import ThermoworksChannelEntity, ThermoworksDeviceEntity
+from .models import ThermoworksChannel, ThermoworksDevice
 
 _LOGGER: logging.Logger = logging.getLogger(__package__)
+
+# Channel units the API reports, mapped to Home Assistant units
+TEMPERATURE_UNITS = {"F": UnitOfTemperature.FAHRENHEIT, "C": UnitOfTemperature.CELSIUS}
+HUMIDITY_UNIT = "H"
 
 
 async def async_setup_entry(
@@ -47,145 +45,29 @@ async def async_setup_entry(
         config_entry.entry_id
     ].coordinator
 
-    new_entities = []
-    for device in coordinator.data.devices:
+    new_entities: list[SensorEntity] = []
+    for device in coordinator.data.devices.values():
+        identifier = device.get_identifier()
 
-        # Only create battery sensor if the device has battery capability
-        if DeviceWithBattery.is_protocol_compliant(device):
+        for device_sensor in DEVICE_SENSORS:
+            if not device_sensor.supported(device):
+                _LOGGER.debug("Not creating %s sensor for device %s",
+                              device_sensor.entity_suffix, device.display_name())
+                continue
             new_entities.append(
-                BatterySensor(
+                device_sensor(
                     entity_id=async_generate_entity_id(
                         ENTITY_ID_FORMAT,
-                        f"{device.get_identifier()}_battery",
+                        f"{identifier}_{device_sensor.entity_suffix}",
                         hass=hass,
                     ),
                     coordinator=coordinator,
                     device=device,
                 )
             )
-        else:
-            _LOGGER.debug(
-                "Not creating battery sensor for device %s, "
-                "missing required attributes: %s", device.display_name(
-                ), get_missing_attributes(device, DeviceWithBattery)
-            )
 
-        # Only create signal sensor if the device reports signal strength
-        if DeviceWithSignalStrength.is_protocol_compliant(device):
-            new_entities.append(
-                SignalSensor(
-                    entity_id=async_generate_entity_id(
-                        ENTITY_ID_FORMAT,
-                        f"{device.get_identifier()}_signal",
-                        hass=hass,
-                    ),
-                    coordinator=coordinator,
-                    device=device,
-                )
-            )
-        else:
-            _LOGGER.debug(
-                "Not creating signal sensor for device %s, "
-                "missing required attributes: %s", device.display_name(
-                ), get_missing_attributes(device, DeviceWithSignalStrength)
-            )
-
-        if DeviceWithLastSeen.is_protocol_compliant(device):
-            new_entities.append(
-                LastSeenSensor(
-                    entity_id=async_generate_entity_id(
-                        ENTITY_ID_FORMAT,
-                        f"{device.get_identifier()}_last_seen",
-                        hass=hass,
-                    ),
-                    coordinator=coordinator,
-                    device=device,
-                )
-            )
-        else:
-            _LOGGER.debug(
-                "Not creating last_seen sensor for device %s, "
-                "missing required attributes: %s", device.display_name(),
-                get_missing_attributes(device, DeviceWithLastSeen)
-            )
-
-        if DeviceWithTransmitInterval.is_protocol_compliant(device):
-            new_entities.append(
-                TransmitIntervalSensor(
-                    entity_id=async_generate_entity_id(
-                        ENTITY_ID_FORMAT,
-                        f"{device.get_identifier()}_transmit_interval",
-                        hass=hass,
-                    ),
-                    coordinator=coordinator,
-                    device=device,
-                )
-            )
-        else:
-            _LOGGER.debug(
-                "Not creating transmit_interval sensor for device %s, "
-                "missing required attributes: %s", device.display_name(),
-                get_missing_attributes(device, DeviceWithTransmitInterval)
-            )
-
-        if DeviceWithFan.is_protocol_compliant(device):
-            new_entities.extend(
-                [
-                    FanStateSensor(
-                        entity_id=async_generate_entity_id(
-                            ENTITY_ID_FORMAT,
-                            f"{device.get_identifier()}_fan_state",
-                            hass=hass,
-                        ),
-                        coordinator=coordinator,
-                        device=device,
-                    ),
-                    FanSetTemperatureSensor(
-                        entity_id=async_generate_entity_id(
-                            ENTITY_ID_FORMAT,
-                            f"{device.get_identifier()}_fan_set_temperature",
-                            hass=hass,
-                        ),
-                        coordinator=coordinator,
-                        device=device,
-                    ),
-                ]
-            )
-        else:
-            _LOGGER.debug(
-                "Not creating fan sensors for device %s, "
-                "missing required attributes: %s", device.display_name(),
-                get_missing_attributes(device, DeviceWithFan)
-            )
-
-        for device_channel in coordinator.data.device_channels.get(device.get_identifier(), []):
-            if device_channel.units == "H":
-                new_entities.append(
-                    HumiditySensor(
-                        entity_id=async_generate_entity_id(
-                            ENTITY_ID_FORMAT,
-                            f"{device.get_identifier()}_ch_{device_channel.number}_humidity",
-                            hass=hass,
-                        ),
-                        coordinator=coordinator,
-                        device_serial=device.get_identifier(),
-                        device_channel=device_channel,
-                    )
-                )
-            elif device_channel.units in ("F", "C"):
-                new_entities.append(
-                    TemperatureSensor(
-                        entity_id=async_generate_entity_id(
-                            ENTITY_ID_FORMAT,
-                            f"{device.get_identifier()}_ch_{device_channel.number}_temperature",
-                            hass=hass,
-                        ),
-                        coordinator=coordinator,
-                        device_serial=device.get_identifier(),
-                        device_channel=device_channel,
-                    )
-                )
-            else:
+        for device_channel in device.channels.values():
+            if device_channel.units not in (*TEMPERATURE_UNITS, HUMIDITY_UNIT):
                 _LOGGER.warning(
                     "Unsupported sensor unit '%s' for device %s channel %s - skipping",
                     device_channel.units,
@@ -193,30 +75,18 @@ async def async_setup_entry(
                     device_channel.display_name()
                 )
 
-            if ChannelWithHighAlarm.is_protocol_compliant(device_channel):
+            for channel_sensor in CHANNEL_SENSORS:
+                if not channel_sensor.supported(device_channel):
+                    continue
                 new_entities.append(
-                    HighAlarmThresholdSensor(
+                    channel_sensor(
                         entity_id=async_generate_entity_id(
                             ENTITY_ID_FORMAT,
-                            f"{device.get_identifier()}_ch_{device_channel.number}_high_alarm_threshold",
+                            f"{identifier}_ch_{device_channel.number}_{channel_sensor.entity_suffix}",
                             hass=hass,
                         ),
                         coordinator=coordinator,
-                        device_serial=device.get_identifier(),
-                        device_channel=device_channel,
-                    )
-                )
-
-            if ChannelWithLowAlarm.is_protocol_compliant(device_channel):
-                new_entities.append(
-                    LowAlarmThresholdSensor(
-                        entity_id=async_generate_entity_id(
-                            ENTITY_ID_FORMAT,
-                            f"{device.get_identifier()}_ch_{device_channel.number}_low_alarm_threshold",
-                            hass=hass,
-                        ),
-                        coordinator=coordinator,
-                        device_serial=device.get_identifier(),
+                        device_serial=identifier,
                         device_channel=device_channel,
                     )
                 )
@@ -228,8 +98,40 @@ async def async_setup_entry(
         _LOGGER.debug("No new entities created")
 
 
-class BatterySensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
+@dataclass(frozen=True)
+class BatteryReading:
+    """Battery level and whether it's charging."""
+
+    level: float
+    charging: bool
+
+
+class DeviceSensor[T](ThermoworksDeviceEntity[T], SensorEntity):
+    """Base class for sensors on the device itself."""
+
+    # Used in the entity id: {device identifier}_{entity_suffix}
+    entity_suffix: str
+
+    _attr_has_entity_name = True
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device information."""
+        # Identifiers are what group entities into the same device.
+        return DeviceInfo(
+            identifiers={
+                (
+                    DOMAIN,
+                    f"{format_mac(self._device.get_identifier())}",
+                )
+            }
+        )
+
+
+class BatterySensor(DeviceSensor[BatteryReading]):
     """Implementation of a sensor."""
+
+    entity_suffix = "battery"
 
     # https://developers.home-assistant.io/docs/core/entity/sensor/#available-device-classes
     _attr_device_class = SensorDeviceClass.BATTERY
@@ -240,7 +142,6 @@ class BatterySensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
     # Naming
     # https://developers.home-assistant.io/docs/core/entity#entity-naming
     # https://developers.home-assistant.io/docs/internationalization/core/#name-of-entities
-    _attr_has_entity_name = True
     _attr_translation_key = "battery"
 
     # API data is in percent with no decimal place
@@ -248,39 +149,16 @@ class BatterySensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
     _attr_native_unit_of_measurement = PERCENTAGE
     _attr_suggested_display_precision = 0
 
-    def __init__(
-        self,
-        entity_id: str,
-        coordinator: ThermoworksCoordinator,
-        device: DeviceWithBattery,
-    ) -> None:
-        """Initialise sensor."""
-        super().__init__(coordinator)
-        self.entity_id = entity_id
-        self._device = device
-
-    @callback
-    def _handle_coordinator_update(self) -> None:
-        """Update sensor with latest data from coordinator."""
-        # This method is called by your DataUpdateCoordinator when a successful update runs.
-        device = self.coordinator.get_device_by_id(
-            self._device.get_identifier())
-        if not device:
-            raise UpdateFailed(
-                f"Cannot update sensor {self.name}: device {self._device.display_name()} is not found")
-        if not DeviceWithBattery.is_protocol_compliant(device):
-            raise UpdateFailed(
-                f"Cannot update sensor {self.name}: device {self._device.display_name()} is missing required "
-                f"attribute(s): {get_missing_attributes(device, DeviceWithBattery)}")
-        self._device = device
-        self.async_write_ha_state()
+    @classmethod
+    def parse(cls, device: ThermoworksDevice) -> BatteryReading | None:
+        if device.battery is None:
+            return None
+        return BatteryReading(float(device.battery), device.battery_state == "charging")
 
     @property
     def device_info(self) -> DeviceInfo:
         """Return device information."""
-        # Identifiers are what group entities into the same device.
-        # If your device is created elsewhere, you can just specify the indentifiers parameter.
-        # If your device connects via another device, add via_device parameter with the indentifiers of that device.
+        # The battery sensor registers the device's details; the others only reference it.
         return DeviceInfo(
             identifiers={
                 (
@@ -298,21 +176,16 @@ class BatterySensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
     @property
     def icon(self) -> str | None:
         """Return the icon to use in the frontend, if any."""
-
-        # Only handle the case where the device is charging as HA doesn't natively support
-        # a charging icon. None check is because not all battery devices support the battery
-        # state property
-        if self._device.battery_state is not None and self._device.battery_state == "charging":
+        # Only handle charging, as HA doesn't natively support a charging icon
+        if self._value is not None and self._value.charging:
             return "mdi:battery-charging-100"
 
         return None
 
     @property
-    def native_value(self) -> int | float:
+    def native_value(self) -> float | None:
         """Return the state of the entity."""
-        # Using native value and native unit of measurement, allows you to change units
-        # in Lovelace and HA will automatically calculate the correct value.
-        return float(self._device.battery)
+        return self._value.level if self._value is not None else None
 
     @property
     def unique_id(self) -> str:
@@ -322,122 +195,178 @@ class BatterySensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
         return f"{DOMAIN}-{format_mac(self._device.get_identifier())}"
 
 
-class LastSeenSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
+class SignalSensor(DeviceSensor[float]):
+    """Implementation of a sensor."""
+
+    entity_suffix = "signal"
+
+    # https://developers.home-assistant.io/docs/core/entity/sensor/#available-device-classes
+    _attr_device_class = SensorDeviceClass.SIGNAL_STRENGTH
+
+    # https://developers.home-assistant.io/docs/core/entity/sensor/#available-state-classes
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    _attr_translation_key = "signal"
+
+    # API data is in negative decibels with no decimal place
+    # https://developers.home-assistant.io/docs/core/entity/sensor#properties
+    _attr_native_unit_of_measurement = SIGNAL_STRENGTH_DECIBELS_MILLIWATT
+    _attr_suggested_display_precision = 0
+
+    @classmethod
+    def parse(cls, device: ThermoworksDevice) -> float | None:
+        if device.signal_strength is None:
+            return None
+        return float(device.signal_strength)
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the state of the entity."""
+        return self._value
+
+    @property
+    def unique_id(self) -> str:
+        """Return unique id."""
+        return f"{DOMAIN}-{format_mac(self._device.get_identifier())}-signal"
+
+
+class LastSeenSensor(DeviceSensor[datetime]):
     """Implementation of a last seen timestamp sensor."""
 
+    entity_suffix = "last_seen"
+
     _attr_device_class = SensorDeviceClass.TIMESTAMP
-    _attr_has_entity_name = True
     _attr_translation_key = "last_seen"
 
-    def __init__(
-        self,
-        entity_id: str,
-        coordinator: ThermoworksCoordinator,
-        device: DeviceWithLastSeen,
-    ) -> None:
-        super().__init__(coordinator)
-        self.entity_id = entity_id
-        self._device = device
-
-    @callback
-    def _handle_coordinator_update(self) -> None:
-        device = self.coordinator.get_device_by_id(self._device.get_identifier())
-        if not device:
-            raise UpdateFailed(
-                f"Cannot update sensor {self.name}: device {self._device.display_name()} is not found"
-            )
-        if not DeviceWithLastSeen.is_protocol_compliant(device):
-            raise UpdateFailed(
-                f"Cannot update sensor {self.name}: device {self._device.display_name()} is missing required "
-                f"attribute(s): {get_missing_attributes(device, DeviceWithLastSeen)}"
-            )
-        self._device = device
-        self.async_write_ha_state()
+    @classmethod
+    def parse(cls, device: ThermoworksDevice) -> datetime | None:
+        # Already parsed into UTC by the device model
+        return device.last_seen
 
     @property
-    def device_info(self) -> DeviceInfo:
-        return DeviceInfo(
-            identifiers={
-                (
-                    DOMAIN,
-                    f"{format_mac(self._device.get_identifier())}",
-                )
-            }
-        )
-
-    @property
-    def native_value(self) -> str | None:
-        if self._device.last_seen is None:
-            return None
-
-        if hasattr(self._device.last_seen, "isoformat"):
-            return dt_util.as_utc(self._device.last_seen)
-
-        last_seen = dt_util.parse_datetime(str(self._device.last_seen))
-        return dt_util.as_utc(last_seen) if last_seen else None
+    def native_value(self) -> datetime | None:
+        return self._value
 
     @property
     def unique_id(self) -> str:
         return f"{DOMAIN}-{format_mac(self._device.get_identifier())}-last-seen"
 
 
-class TransmitIntervalSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
+class TransmitIntervalSensor(DeviceSensor[int]):
     """Implementation of a transmit interval sensor."""
+
+    entity_suffix = "transmit_interval"
 
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = UnitOfTime.SECONDS
-    _attr_has_entity_name = True
     _attr_translation_key = "transmit_interval"
 
-    def __init__(
-        self,
-        entity_id: str,
-        coordinator: ThermoworksCoordinator,
-        device: DeviceWithTransmitInterval,
-    ) -> None:
-        super().__init__(coordinator)
-        self.entity_id = entity_id
-        self._device = device
-
-    @callback
-    def _handle_coordinator_update(self) -> None:
-        device = self.coordinator.get_device_by_id(self._device.get_identifier())
-        if not device:
-            raise UpdateFailed(
-                f"Cannot update sensor {self.name}: device {self._device.display_name()} is not found"
-            )
-        if not DeviceWithTransmitInterval.is_protocol_compliant(device):
-            raise UpdateFailed(
-                f"Cannot update sensor {self.name}: device {self._device.display_name()} is missing required "
-                f"attribute(s): {get_missing_attributes(device, DeviceWithTransmitInterval)}"
-            )
-        self._device = device
-        self.async_write_ha_state()
-
-    @property
-    def device_info(self) -> DeviceInfo:
-        return DeviceInfo(
-            identifiers={
-                (
-                    DOMAIN,
-                    f"{format_mac(self._device.get_identifier())}",
-                )
-            }
-        )
+    @classmethod
+    def parse(cls, device: ThermoworksDevice) -> int | None:
+        return device.transmit_interval_in_seconds
 
     @property
     def native_value(self) -> int | None:
-        return self._device.transmit_interval_in_seconds
+        return self._value
 
     @property
     def unique_id(self) -> str:
         return f"{DOMAIN}-{format_mac(self._device.get_identifier())}-transmit-interval"
 
 
-class ChannelSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
+class FanSensor(DeviceSensor[Fan]):
+    """Base class for Thermoworks fan accessory sensors.
+
+    Created for any device that reports a fan, but only available while the fan is
+    connected, since a disconnected fan still reports its last values.
+    """
+
+    @classmethod
+    def parse(cls, device: ThermoworksDevice) -> Fan | None:
+        return device.connected_fan
+
+    @classmethod
+    def supported(cls, device: ThermoworksDevice) -> bool:
+        return device.fan is not None
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return fan device information."""
+        gateway_identifier = format_mac(self._device.get_identifier())
+        return DeviceInfo(
+            identifiers={(DOMAIN, f"{gateway_identifier}-fan")},
+            name=f"{self._device.label or self._device.display_name()} Fan",
+            manufacturer="ThermoWorks",
+            via_device=(DOMAIN, gateway_identifier),
+        )
+
+
+class FanStateSensor(FanSensor):
+    """Implementation of a Thermoworks fan state sensor."""
+
+    entity_suffix = "fan_state"
+
+    _attr_device_class = SensorDeviceClass.ENUM
+    _attr_options = ["Paused", "Blowing", "Pulsing"]
+    _attr_translation_key = "fan_state"
+
+    @property
+    def native_value(self) -> str | None:
+        """Return the fan state name."""
+        return self._value.state_name if self._value is not None else None
+
+    @property
+    def unique_id(self) -> str:
+        """Return unique id."""
+        return f"{DOMAIN}-{format_mac(self._device.get_identifier())}-fan-state"
+
+
+class FanSetTemperatureSensor(FanSensor):
+    """Implementation of a Thermoworks fan set temperature sensor."""
+
+    entity_suffix = "fan_set_temperature"
+
+    _attr_suggested_display_precision = 0
+    _attr_translation_key = "fan_set_temperature"
+
+    @property
+    def device_class(self) -> SensorDeviceClass | None:
+        """Return device class when the API reports a temperature unit."""
+        return (
+            SensorDeviceClass.TEMPERATURE
+            if self.native_unit_of_measurement is not None
+            else None
+        )
+
+    @property
+    def native_unit_of_measurement(self) -> str | None:
+        """Return unit of temperature."""
+        return TEMPERATURE_UNITS.get(self._device.device_display_units)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, str]:
+        """Return fan set temperature attributes."""
+        if self._value is None or self._value.fan_channel is None:
+            return {}
+
+        return {"channel": self._value.fan_channel}
+
+    @property
+    def native_value(self) -> int | None:
+        """Return the fan set temperature."""
+        return self._value.set_temp if self._value is not None else None
+
+    @property
+    def unique_id(self) -> str:
+        """Return unique id."""
+        return f"{DOMAIN}-{format_mac(self._device.get_identifier())}-fan-set-temperature"
+
+
+class ChannelSensor[T](ThermoworksChannelEntity[T], SensorEntity):
     """Base class for thermoworks channel sensors."""
 
-    _device_channel: ThermoworksChannel
+    # Used in the entity id: {device identifier}_ch_{channel number}_{entity_suffix}
+    entity_suffix: str
 
     # https://developers.home-assistant.io/docs/core/entity/sensor/#available-state-classes
     _attr_state_class = SensorStateClass.MEASUREMENT
@@ -450,44 +379,9 @@ class ChannelSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
     # https://developers.home-assistant.io/docs/core/entity/sensor#properties
     _attr_suggested_display_precision = 1
 
-    def __init__(
-        self,
-        entity_id: str,
-        coordinator: ThermoworksCoordinator,
-        device_serial: str,
-        device_channel: ThermoworksChannel,
-    ) -> None:
-        """Initialize the sensor."""
-
-        super().__init__(coordinator)
-        self.entity_id = entity_id
-        self._device_channel = device_channel
-        self._device_serial = device_serial
-
-    @property
-    def available(self) -> bool:
-        """Do not present the last known data of a channel the API no longer provides."""
-        return super().available and self.coordinator.get_device_channel_by_id(
-            device_id=self._device_serial, channel_id=self._device_channel.number
-        ) is not None
-
-    @callback
-    def _handle_coordinator_update(self) -> None:
-        """Update sensor with latest data from coordinator."""
-        # This method is called by your DataUpdateCoordinator when a successful update runs.
-        device_channel = self.coordinator.get_device_channel_by_id(
-            device_id=self._device_serial, channel_id=self._device_channel.number
-        )
-        if device_channel:
-            self._device_channel = device_channel
-        self.async_write_ha_state()
-
     @property
     def device_info(self) -> DeviceInfo:
         """Return device information."""
-        # Identifiers are what group entities into the same device.
-        # If your device is created elsewhere, you can just specify the indentifiers parameter.
-        # If your device connects via another device, add via_device parameter with the indentifiers of that device.
         return DeviceInfo(
             identifiers={
                 (
@@ -526,26 +420,30 @@ class ChannelSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
         }
 
     @property
-    def native_value(self) -> float | None:
-        """Return the state of the entity."""
-        # Using native value and native unit of measurement, allows you to change units
-        # in Lovelace and HA will automatically calculate the correct value.
-        value = self._device_channel.value
-        return float(value) if value is not None else None
-
-
-    @property
     def unique_id(self) -> str:
         """Return unique id."""
         # All entities must have a unique id.  Think carefully what you want this to be as
         # changing it later will cause HA to create new entities.
-        return (
-            f"{DOMAIN}-{format_mac(self._device_serial)
-                        }-{self._device_channel.number}"
-        )
+        return f"{DOMAIN}-{format_mac(self._device_serial)}-{self._device_channel.number}"
 
-class TemperatureSensor(ChannelSensor):
+
+class MeasurementSensor(ChannelSensor[float]):
+    """Base class for sensors showing a channel's reading.
+
+    Created from the channel's units, even before it has a reading, so a probe that
+    isn't plugged in yet still gets its entity. It's available only with a valid reading.
+    """
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the state of the entity."""
+        return self._value
+
+
+class TemperatureSensor(MeasurementSensor):
     """Implementation of a thermoworks temperature sensor."""
+
+    entity_suffix = "temperature"
 
     # https://developers.home-assistant.io/docs/core/entity/sensor/#available-device-classes
     _attr_device_class = SensorDeviceClass.TEMPERATURE
@@ -555,27 +453,24 @@ class TemperatureSensor(ChannelSensor):
     # https://developers.home-assistant.io/docs/internationalization/core/#name-of-entities
     _attr_translation_key = "temperature"
 
-    @property
-    def available(self) -> bool:
-        """Return whether the channel reports a usable measurement."""
-        return super().available and self._device_channel.has_valid_reading
+    @classmethod
+    def parse(cls, channel: ThermoworksChannel) -> float | None:
+        return channel.reading if cls.supported(channel) else None
+
+    @classmethod
+    def supported(cls, channel: ThermoworksChannel) -> bool:
+        return channel.units in TEMPERATURE_UNITS
 
     @property
-    def native_unit_of_measurement(self) -> str:
+    def native_unit_of_measurement(self) -> str | None:
         """Return unit of temperature."""
-        if self._device_channel.units == "F":
-            return UnitOfTemperature.FAHRENHEIT
-        if self._device_channel.units == "C":
-            return UnitOfTemperature.CELSIUS
-
-        raise ValueError(
-            f"Unable to determine unit of measurement from unit string '{
-                self._device_channel.units}'"
-        )
+        return TEMPERATURE_UNITS.get(self._device_channel.units)
 
 
-class HumiditySensor(ChannelSensor):
+class HumiditySensor(MeasurementSensor):
     """Implementation of a thermoworks humidity sensor."""
+
+    entity_suffix = "humidity"
 
     # https://developers.home-assistant.io/docs/core/entity/sensor/#available-device-classes
     _attr_device_class = SensorDeviceClass.HUMIDITY
@@ -589,24 +484,27 @@ class HumiditySensor(ChannelSensor):
     # https://developers.home-assistant.io/docs/core/entity/sensor#properties
     _attr_native_unit_of_measurement = PERCENTAGE
 
-    @property
-    def available(self) -> bool:
-        """Return whether the channel reports a usable measurement."""
-        return super().available and self._device_channel.has_valid_reading
+    @classmethod
+    def parse(cls, channel: ThermoworksChannel) -> float | None:
+        return channel.reading if cls.supported(channel) else None
+
+    @classmethod
+    def supported(cls, channel: ThermoworksChannel) -> bool:
+        return channel.units == HUMIDITY_UNIT
 
 
-class AlarmThresholdSensor(ChannelSensor):
-    """Base class for Thermoworks channel alarm threshold sensors."""
+class AlarmThresholdSensor(ChannelSensor[Alarm]):
+    """Base class for Thermoworks channel alarm threshold sensors.
+
+    The threshold is a setting, not a measurement, so it doesn't depend on the reading.
+    """
 
     _attr_suggested_display_precision = 0
 
     @property
     def device_class(self) -> SensorDeviceClass | None:
         """Return the alarm threshold device class."""
-        if self.native_unit_of_measurement in (
-            UnitOfTemperature.FAHRENHEIT,
-            UnitOfTemperature.CELSIUS,
-        ):
+        if self.native_unit_of_measurement in TEMPERATURE_UNITS.values():
             return SensorDeviceClass.TEMPERATURE
         if self.native_unit_of_measurement == PERCENTAGE:
             return SensorDeviceClass.HUMIDITY
@@ -616,47 +514,41 @@ class AlarmThresholdSensor(ChannelSensor):
     @property
     def native_unit_of_measurement(self) -> str | None:
         """Return alarm threshold unit."""
-        if self._alarm is None:
+        if self._value is None:
             return None
-        if self._alarm.units == "F":
-            return UnitOfTemperature.FAHRENHEIT
-        if self._alarm.units == "C":
-            return UnitOfTemperature.CELSIUS
-        if self._alarm.units == "H":
+        if self._value.units == HUMIDITY_UNIT:
             return PERCENTAGE
-
-        return None
+        return TEMPERATURE_UNITS.get(self._value.units)
 
     @property
     def extra_state_attributes(self) -> dict[str, bool | None]:
         """Return alarm metadata."""
-        if self._alarm is None:
+        if self._value is None:
             return {
                 "enabled": None,
                 "alarming": None,
             }
         return {
-            "enabled": self._alarm.enabled,
-            "alarming": self._alarm.alarming,
+            "enabled": self._value.enabled,
+            "alarming": self._value.alarming,
         }
 
     @property
-    def native_value(self) -> int | None:
+    def native_value(self) -> float | None:
         """Return the configured alarm threshold."""
-        if self._alarm is None:
-            return None
-        return self._alarm.value
+        return self._value.value if self._value is not None else None
 
 
 class HighAlarmThresholdSensor(AlarmThresholdSensor):
     """Implementation of a Thermoworks channel high alarm threshold sensor."""
 
+    entity_suffix = "high_alarm_threshold"
+
     _attr_translation_key = "high_alarm_threshold"
 
-    @property
-    def _alarm(self):
-        """Return high alarm data."""
-        return self._device_channel.alarm_high
+    @classmethod
+    def parse(cls, channel: ThermoworksChannel) -> Alarm | None:
+        return channel.alarm_high
 
     @property
     def name(self) -> str:
@@ -672,12 +564,13 @@ class HighAlarmThresholdSensor(AlarmThresholdSensor):
 class LowAlarmThresholdSensor(AlarmThresholdSensor):
     """Implementation of a Thermoworks channel low alarm threshold sensor."""
 
+    entity_suffix = "low_alarm_threshold"
+
     _attr_translation_key = "low_alarm_threshold"
 
-    @property
-    def _alarm(self):
-        """Return low alarm data."""
-        return self._device_channel.alarm_low
+    @classmethod
+    def parse(cls, channel: ThermoworksChannel) -> Alarm | None:
+        return channel.alarm_low
 
     @property
     def name(self) -> str:
@@ -690,189 +583,18 @@ class LowAlarmThresholdSensor(AlarmThresholdSensor):
         return f"{DOMAIN}-{format_mac(self._device_serial)}-{self._device_channel.number}-low-alarm-threshold"
 
 
-class FanSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
-    """Base class for Thermoworks fan accessory sensors."""
-
-    _attr_has_entity_name = True
-
-    def __init__(
-        self,
-        entity_id: str,
-        coordinator: ThermoworksCoordinator,
-        device: DeviceWithFan,
-    ) -> None:
-        """Initialise sensor."""
-        super().__init__(coordinator)
-        self.entity_id = entity_id
-        self._device = device
-
-    @callback
-    def _handle_coordinator_update(self) -> None:
-        """Update sensor with latest data from coordinator."""
-        device = self.coordinator.get_device_by_id(self._device.get_identifier())
-        if not device:
-            raise UpdateFailed(
-                f"Cannot update sensor {self.name}: device {self._device.display_name()} is not found"
-            )
-        if not DeviceWithFan.is_protocol_compliant(device):
-            raise UpdateFailed(
-                f"Cannot update sensor {self.name}: device {self._device.display_name()} is missing required "
-                f"attribute(s): {get_missing_attributes(device, DeviceWithFan)}"
-            )
-        self._device = device
-        self.async_write_ha_state()
-
-    @property
-    def device_info(self) -> DeviceInfo:
-        """Return fan device information."""
-        gateway_identifier = format_mac(self._device.get_identifier())
-        return DeviceInfo(
-            identifiers={(DOMAIN, f"{gateway_identifier}-fan")},
-            name=f"{self._device.label or self._device.display_name()} Fan",
-            manufacturer="ThermoWorks",
-            via_device=(DOMAIN, gateway_identifier),
-        )
-
-    @property
-    def available(self) -> bool:
-        """Return true if the fan accessory value is available."""
-        return super().available and self._device.fan.connected is True
-
-
-class FanStateSensor(FanSensor):
-    """Implementation of a Thermoworks fan state sensor."""
-
-    _attr_device_class = SensorDeviceClass.ENUM
-    _attr_options = ["Paused", "Blowing", "Pulsing"]
-    _attr_translation_key = "fan_state"
-
-    @property
-    def native_value(self) -> str | None:
-        """Return the fan state name."""
-        return self._device.fan.state_name
-
-    @property
-    def unique_id(self) -> str:
-        """Return unique id."""
-        return f"{DOMAIN}-{format_mac(self._device.get_identifier())}-fan-state"
-
-
-class FanSetTemperatureSensor(FanSensor):
-    """Implementation of a Thermoworks fan set temperature sensor."""
-
-    _attr_suggested_display_precision = 0
-    _attr_translation_key = "fan_set_temperature"
-
-    @property
-    def device_class(self) -> SensorDeviceClass | None:
-        """Return device class when the API reports a temperature unit."""
-        return (
-            SensorDeviceClass.TEMPERATURE
-            if self.native_unit_of_measurement is not None
-            else None
-        )
-
-    @property
-    def native_unit_of_measurement(self) -> str | None:
-        """Return unit of temperature."""
-        if self._device.device_display_units == "F":
-            return UnitOfTemperature.FAHRENHEIT
-        if self._device.device_display_units == "C":
-            return UnitOfTemperature.CELSIUS
-
-        return None
-
-    @property
-    def extra_state_attributes(self) -> dict[str, str]:
-        """Return fan set temperature attributes."""
-        if self._device.fan.fan_channel is None:
-            return {}
-
-        return {"channel": self._device.fan.fan_channel}
-
-    @property
-    def native_value(self) -> int | None:
-        """Return the fan set temperature."""
-        return self._device.fan.set_temp
-
-    @property
-    def unique_id(self) -> str:
-        """Return unique id."""
-        return f"{DOMAIN}-{format_mac(self._device.get_identifier())}-fan-set-temperature"
-
-
-class SignalSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
-    """Implementation of a sensor."""
-
-    # https://developers.home-assistant.io/docs/core/entity/sensor/#available-device-classes
-    _attr_device_class = SensorDeviceClass.SIGNAL_STRENGTH
-
-    # https://developers.home-assistant.io/docs/core/entity/sensor/#available-state-classes
-    _attr_state_class = SensorStateClass.MEASUREMENT
-
-    # Naming
-    # https://developers.home-assistant.io/docs/core/entity#entity-naming
-    # https://developers.home-assistant.io/docs/internationalization/core/#name-of-entities
-    _attr_has_entity_name = True
-    _attr_translation_key = "signal"
-
-    # API data is in negative decibels with no decimal place
-    # https://developers.home-assistant.io/docs/core/entity/sensor#properties
-    _attr_native_unit_of_measurement = SIGNAL_STRENGTH_DECIBELS_MILLIWATT
-    _attr_suggested_display_precision = 0
-
-    def __init__(
-        self,
-        entity_id: str,
-        coordinator: ThermoworksCoordinator,
-        device: DeviceWithSignalStrength,
-    ) -> None:
-        """Initialise sensor."""
-        super().__init__(coordinator)
-        self.entity_id = entity_id
-        self._device = device
-
-    @callback
-    def _handle_coordinator_update(self) -> None:
-        """Update sensor with latest data from coordinator."""
-        # This method is called by your DataUpdateCoordinator when a successful update runs.
-        device = self.coordinator.get_device_by_id(
-            self._device.get_identifier())
-        if not device:
-            raise UpdateFailed(
-                f"Cannot update sensor {self.name}: device {self._device.display_name()} is not found")
-        if not DeviceWithSignalStrength.is_protocol_compliant(device):
-            raise UpdateFailed(
-                f"Cannot update sensor {self.name}: device {self._device.display_name()} is missing required "
-                f"attribute(s): {get_missing_attributes(device, DeviceWithSignalStrength)}")
-        self._device = device
-        self.async_write_ha_state()
-
-    @property
-    def device_info(self) -> DeviceInfo:
-        """Return device information."""
-        # Identifiers are what group entities into the same device.
-        # If your device is created elsewhere, you can just specify the indentifiers parameter.
-        # If your device connects via another device, add via_device parameter with the indentifiers of that device.
-        return DeviceInfo(
-            identifiers={
-                (
-                    DOMAIN,
-                    f"{format_mac(self._device.get_identifier())}",
-                )
-            }
-        )
-
-    @property
-    def native_value(self) -> int | float:
-        """Return the state of the entity."""
-        # Using native value and native unit of measurement, allows you to change units
-        # in Lovelace and HA will automatically calculate the correct value.
-        return float(self._device.signal_strength)
-
-    @property
-    def unique_id(self) -> str:
-        """Return unique id."""
-        # All entities must have a unique id.  Think carefully what you want this to be as
-        # changing it later will cause HA to create new entities.
-        return f"{DOMAIN}-{format_mac(self._device.get_identifier())}-signal"
+# Created in this order, which matters only when generated entity ids collide
+DEVICE_SENSORS: list[type[DeviceSensor]] = [
+    BatterySensor,
+    SignalSensor,
+    LastSeenSensor,
+    TransmitIntervalSensor,
+    FanStateSensor,
+    FanSetTemperatureSensor,
+]
+CHANNEL_SENSORS: list[type[ChannelSensor]] = [
+    HumiditySensor,
+    TemperatureSensor,
+    HighAlarmThresholdSensor,
+    LowAlarmThresholdSensor,
+]

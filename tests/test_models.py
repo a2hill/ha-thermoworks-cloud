@@ -1,82 +1,67 @@
 """Tests for ThermoWorks integration models."""
 
-from types import SimpleNamespace
+from datetime import datetime, timezone
 
-from thermoworks_cloud.models import Alarm, DeviceChannel, Fan
+import pytest
+from thermoworks_cloud.models import Alarm, Device, DeviceChannel, Fan
 
+from custom_components.thermoworks_cloud.exceptions import MissingRequiredAttributeError
 from custom_components.thermoworks_cloud.models import (
-    ChannelWithHighAlarm,
-    ChannelWithLowAlarm,
-    DeviceWithFan,
-    DeviceWithSignalStrength,
     ThermoworksChannel,
     ThermoworksDevice,
 )
 
 
-def test_signal_strength_capability_uses_normalized_property() -> None:
-    """Devices with non-Wi-Fi signal strength expose a signal sensor."""
-    device = ThermoworksDevice(serial="RFX123", signal_strength=-67)
-
-    assert DeviceWithSignalStrength.is_protocol_compliant(device)
-
-
 def test_from_api_device_preserves_normalized_signal_strength() -> None:
     """The integration copies the library's Wi-Fi/gateway RSSI abstraction."""
-    api_device = SimpleNamespace(
-        device_id=None,
-        label="RFX Meat",
-        device_name="RFX Meat",
-        firmware="1.2.3",
-        serial="RFX123",
-        battery=82,
-        battery_state=None,
-        wifi_strength=None,
-        signal_strength=-67,
-        last_seen=None,
-        transmit_interval_in_seconds=None,
-    )
+    api_device = Device(serial="RFX123", gateway_rssi=-67)
 
     device = ThermoworksDevice.from_api_device(api_device)
 
     assert device.signal_strength == -67
-    assert device.wifi_strength is None
-    assert DeviceWithSignalStrength.is_protocol_compliant(device)
-
-
-def test_fan_capability_uses_fan_property() -> None:
-    """Devices with fan accessory data expose fan accessory entities."""
-    fan = Fan(connected=True, fan_channel="1", set_temp=150, state=1)
-    device = ThermoworksDevice(serial="RFX123", fan=fan)
-
-    assert DeviceWithFan.is_protocol_compliant(device)
 
 
 def test_from_api_device_preserves_fan() -> None:
     """The integration copies the library's fan accessory data."""
     fan = Fan(connected=True, fan_channel="1", set_temp=150, state=1)
-    api_device = SimpleNamespace(
-        device_id=None,
-        label="RFX Gateway",
-        device_name="RFX Gateway",
-        device_display_units="F",
-        firmware="1.2.3",
-        serial="RFX123",
-        battery=82,
-        battery_state=None,
-        wifi_strength=None,
-        signal_strength=-67,
-        fan=fan,
-        last_seen=None,
-        transmit_interval_in_seconds=None,
-    )
+    api_device = Device(serial="RFX123", device_display_units="F", fan=fan)
 
     device = ThermoworksDevice.from_api_device(api_device)
 
     assert device.fan == fan
-    assert device.fan.state_name == "Blowing"
+    assert device.connected_fan == fan
     assert device.device_display_units == "F"
-    assert DeviceWithFan.is_protocol_compliant(device)
+
+
+def test_disconnected_fan_is_not_a_connected_fan() -> None:
+    """A disconnected fan's last values aren't presented as current."""
+    device = ThermoworksDevice(serial="RFX123", fan=Fan(connected=False, state=1))
+
+    assert device.connected_fan is None
+
+
+def test_from_api_device_keys_channels_by_number() -> None:
+    """Channels are looked up by number, so entities don't search for them."""
+    channel = ThermoworksChannel(number="2", units="F", value=100)
+
+    device = ThermoworksDevice.from_api_device(Device(serial="RFX123"), [channel])
+
+    assert device.channels == {"2": channel}
+
+
+def test_from_api_device_parses_last_seen_as_utc() -> None:
+    """Timestamps are parsed once, at the boundary."""
+    device = ThermoworksDevice.from_api_device(
+        Device(serial="RFX123", last_seen="2026-01-02T03:04:05Z")
+    )
+
+    assert device.last_seen == datetime(2026, 1, 2, 3, 4, 5, tzinfo=timezone.utc)
+
+
+def test_device_without_serial_is_rejected() -> None:
+    """A device with no serial can't be identified, so it isn't parsed."""
+    with pytest.raises(MissingRequiredAttributeError):
+        ThermoworksDevice.from_api_device(Device(label="No serial"))
 
 
 def test_from_api_channel_preserves_alarms() -> None:
@@ -97,5 +82,35 @@ def test_from_api_channel_preserves_alarms() -> None:
 
     assert channel.alarm_high == high_alarm
     assert channel.alarm_low == low_alarm
-    assert ChannelWithHighAlarm.is_protocol_compliant(channel)
-    assert ChannelWithLowAlarm.is_protocol_compliant(channel)
+
+
+@pytest.mark.parametrize("missing", ["number", "units"])
+def test_channel_without_number_or_units_is_rejected(missing: str) -> None:
+    """A channel that can't be identified or interpreted isn't parsed."""
+    api_channel = DeviceChannel(**{"number": "1", "units": "F", "value": 150, missing: None})
+
+    with pytest.raises(MissingRequiredAttributeError):
+        ThermoworksChannel.from_api_channel(api_channel)
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        pytest.param({"value": None}, id="no-value"),
+        pytest.param({"enabled": False}, id="disabled"),
+        pytest.param({"probe_failed": True}, id="probe-failed"),
+        pytest.param({"status": "NO PROBE"}, id="no-probe"),
+    ],
+)
+def test_channel_reading_rejects_explicit_failures(overrides: dict) -> None:
+    """A channel that reports a failure has no reading."""
+    channel = ThermoworksChannel(number="1", units="F", **{"value": 150, **overrides})
+
+    assert channel.reading is None
+
+
+def test_channel_reading_accepts_unknown_metadata() -> None:
+    """Missing metadata isn't treated as a failure."""
+    channel = ThermoworksChannel(number="1", units="F", value=150)
+
+    assert channel.reading == 150.0

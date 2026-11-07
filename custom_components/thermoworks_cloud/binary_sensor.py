@@ -1,4 +1,4 @@
-"""Binary sensors for Thermoworks Cloud fan accessories."""
+"""Binary sensors for Thermoworks Cloud fan accessories and channel alarms."""
 
 from homeassistant.components.binary_sensor import (
     ENTITY_ID_FORMAT,
@@ -6,21 +6,16 @@ from homeassistant.components.binary_sensor import (
     BinarySensorEntity,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo, format_mac
 from homeassistant.helpers.entity import async_generate_entity_id
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.update_coordinator import CoordinatorEntity, UpdateFailed
+from thermoworks_cloud.models import Alarm, Fan
 
 from .const import DOMAIN
 from .coordinator import ThermoworksCoordinator
-from .models import (
-    ChannelWithHighAlarm,
-    ChannelWithLowAlarm,
-    DeviceWithFan,
-    ThermoworksChannel,
-    get_missing_attributes,
-)
+from .entity import ThermoworksChannelEntity, ThermoworksDeviceEntity
+from .models import ThermoworksChannel, ThermoworksDevice
 
 
 async def async_setup_entry(
@@ -33,48 +28,37 @@ async def async_setup_entry(
         config_entry.entry_id
     ].coordinator
 
-    new_entities = [
-        FanConnectedSensor(
-            entity_id=async_generate_entity_id(
-                ENTITY_ID_FORMAT,
-                f"{device.get_identifier()}_fan_connected",
-                hass=hass,
-            ),
-            coordinator=coordinator,
-            device=device,
-        )
-        for device in coordinator.data.devices
-        if DeviceWithFan.is_protocol_compliant(device)
-    ]
+    new_entities: list[BinarySensorEntity] = []
+    for device in coordinator.data.devices.values():
+        identifier = device.get_identifier()
 
-    for device in coordinator.data.devices:
-        for device_channel in coordinator.data.device_channels.get(
-            device.get_identifier(), []
-        ):
-            if ChannelWithHighAlarm.is_protocol_compliant(device_channel):
-                new_entities.append(
-                    HighAlarmBinarySensor(
-                        entity_id=async_generate_entity_id(
-                            ENTITY_ID_FORMAT,
-                            f"{device.get_identifier()}_ch_{device_channel.number}_high_alarm",
-                            hass=hass,
-                        ),
-                        coordinator=coordinator,
-                        device_serial=device.get_identifier(),
-                        device_channel=device_channel,
-                    )
+        if FanConnectedSensor.supported(device):
+            new_entities.append(
+                FanConnectedSensor(
+                    entity_id=async_generate_entity_id(
+                        ENTITY_ID_FORMAT, f"{identifier}_fan_connected", hass=hass
+                    ),
+                    coordinator=coordinator,
+                    device=device,
                 )
+            )
 
-            if ChannelWithLowAlarm.is_protocol_compliant(device_channel):
+    # Channel alarms come after every fan sensor, the order they've always been created in
+    for device in coordinator.data.devices.values():
+        identifier = device.get_identifier()
+        for device_channel in device.channels.values():
+            for alarm_sensor in (HighAlarmBinarySensor, LowAlarmBinarySensor):
+                if not alarm_sensor.supported(device_channel):
+                    continue
                 new_entities.append(
-                    LowAlarmBinarySensor(
+                    alarm_sensor(
                         entity_id=async_generate_entity_id(
                             ENTITY_ID_FORMAT,
-                            f"{device.get_identifier()}_ch_{device_channel.number}_low_alarm",
+                            f"{identifier}_ch_{device_channel.number}_{alarm_sensor.entity_suffix}",
                             hass=hass,
                         ),
                         coordinator=coordinator,
-                        device_serial=device.get_identifier(),
+                        device_serial=identifier,
                         device_channel=device_channel,
                     )
                 )
@@ -82,39 +66,20 @@ async def async_setup_entry(
     async_add_entities(new_entities)
 
 
-class FanConnectedSensor(CoordinatorEntity[ThermoworksCoordinator], BinarySensorEntity):
-    """Implementation of a Thermoworks fan connection sensor."""
+class FanConnectedSensor(ThermoworksDeviceEntity[Fan], BinarySensorEntity):
+    """Implementation of a Thermoworks fan connection sensor.
+
+    Unlike the fan sensors, this stays available while the fan is disconnected, since
+    showing that is its job.
+    """
 
     _attr_device_class = BinarySensorDeviceClass.CONNECTIVITY
     _attr_has_entity_name = True
     _attr_translation_key = "fan_connected"
 
-    def __init__(
-        self,
-        entity_id: str,
-        coordinator: ThermoworksCoordinator,
-        device: DeviceWithFan,
-    ) -> None:
-        """Initialise sensor."""
-        super().__init__(coordinator)
-        self.entity_id = entity_id
-        self._device = device
-
-    @callback
-    def _handle_coordinator_update(self) -> None:
-        """Update sensor with latest data from coordinator."""
-        device = self.coordinator.get_device_by_id(self._device.get_identifier())
-        if not device:
-            raise UpdateFailed(
-                f"Cannot update sensor {self.name}: device {self._device.display_name()} is not found"
-            )
-        if not DeviceWithFan.is_protocol_compliant(device):
-            raise UpdateFailed(
-                f"Cannot update sensor {self.name}: device {self._device.display_name()} is missing required "
-                f"attribute(s): {get_missing_attributes(device, DeviceWithFan)}"
-            )
-        self._device = device
-        self.async_write_ha_state()
+    @classmethod
+    def parse(cls, device: ThermoworksDevice) -> Fan | None:
+        return device.fan
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -130,7 +95,7 @@ class FanConnectedSensor(CoordinatorEntity[ThermoworksCoordinator], BinarySensor
     @property
     def is_on(self) -> bool | None:
         """Return true if the fan accessory is connected."""
-        return self._device.fan.connected
+        return self._value.connected if self._value is not None else None
 
     @property
     def unique_id(self) -> str:
@@ -138,47 +103,31 @@ class FanConnectedSensor(CoordinatorEntity[ThermoworksCoordinator], BinarySensor
         return f"{DOMAIN}-{format_mac(self._device.get_identifier())}-fan-connected"
 
 
-class AlarmBinarySensor(
-    CoordinatorEntity[ThermoworksCoordinator], BinarySensorEntity
-):
-    """Base class for Thermoworks channel alarm binary sensors."""
+class AlarmBinarySensor(ThermoworksChannelEntity[Alarm], BinarySensorEntity):
+    """Base class for Thermoworks channel alarm binary sensors.
+
+    Created when the channel has the alarm, but only available while the channel has a
+    valid reading. Without one, the alarm's state is an old evaluation, not a current one.
+    """
+
+    # Used in the entity id: {device identifier}_ch_{channel number}_{entity_suffix}
+    entity_suffix: str
 
     _attr_device_class = BinarySensorDeviceClass.PROBLEM
     _attr_has_entity_name = True
 
-    def __init__(
-        self,
-        entity_id: str,
-        coordinator: ThermoworksCoordinator,
-        device_serial: str,
-        device_channel: ThermoworksChannel,
-    ) -> None:
-        """Initialise sensor."""
-        super().__init__(coordinator)
-        self.entity_id = entity_id
-        self._device_serial = device_serial
-        self._device_channel = device_channel
+    @classmethod
+    def _alarm(cls, channel: ThermoworksChannel) -> Alarm | None:
+        """Return the alarm this sensor shows."""
+        raise NotImplementedError
 
-    @property
-    def available(self) -> bool:
-        """Do not present a channel's old alarm evaluation as a current alarm state."""
-        return (
-            super().available
-            and self.coordinator.get_device_channel_by_id(
-                device_id=self._device_serial, channel_id=self._device_channel.number
-            ) is not None
-            and self._device_channel.has_valid_reading
-        )
+    @classmethod
+    def parse(cls, channel: ThermoworksChannel) -> Alarm | None:
+        return cls._alarm(channel) if channel.reading is not None else None
 
-    @callback
-    def _handle_coordinator_update(self) -> None:
-        """Update sensor with latest data from coordinator."""
-        device_channel = self.coordinator.get_device_channel_by_id(
-            device_id=self._device_serial, channel_id=self._device_channel.number
-        )
-        if device_channel:
-            self._device_channel = device_channel
-        self.async_write_ha_state()
+    @classmethod
+    def supported(cls, channel: ThermoworksChannel) -> bool:
+        return cls._alarm(channel) is not None
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -196,28 +145,30 @@ class AlarmBinarySensor(
     def extra_state_attributes(self) -> dict[str, bool | int | str | None]:
         """Return alarm metadata."""
         return {
-            "enabled": self._alarm.enabled if self._alarm else None,
-            "value": self._alarm.value if self._alarm else None,
-            "units": self._alarm.units if self._alarm else None,
+            "enabled": self._value.enabled if self._value else None,
+            "value": self._value.value if self._value else None,
+            "units": self._value.units if self._value else None,
         }
 
     @property
     def is_on(self) -> bool | None:
         """Return true if the alarm is active."""
-        if self._alarm is None:
+        if self._value is None:
             return None
-        return self._alarm.enabled is True and self._alarm.alarming is True
+        return self._value.enabled is True and self._value.alarming is True
 
 
 class HighAlarmBinarySensor(AlarmBinarySensor):
     """Implementation of a Thermoworks channel high alarm binary sensor."""
 
+    entity_suffix = "high_alarm"
+
     _attr_translation_key = "high_alarm"
 
-    @property
-    def _alarm(self):
+    @classmethod
+    def _alarm(cls, channel: ThermoworksChannel) -> Alarm | None:
         """Return high alarm data."""
-        return self._device_channel.alarm_high
+        return channel.alarm_high
 
     @property
     def name(self) -> str:
@@ -233,12 +184,14 @@ class HighAlarmBinarySensor(AlarmBinarySensor):
 class LowAlarmBinarySensor(AlarmBinarySensor):
     """Implementation of a Thermoworks channel low alarm binary sensor."""
 
+    entity_suffix = "low_alarm"
+
     _attr_translation_key = "low_alarm"
 
-    @property
-    def _alarm(self):
+    @classmethod
+    def _alarm(cls, channel: ThermoworksChannel) -> Alarm | None:
         """Return low alarm data."""
-        return self._device_channel.alarm_low
+        return channel.alarm_low
 
     @property
     def name(self) -> str:

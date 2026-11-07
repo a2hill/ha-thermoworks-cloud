@@ -1,5 +1,6 @@
 """Coordinates data updates from the Thermoworks Cloud API."""
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import timedelta
 import logging
@@ -18,6 +19,7 @@ from thermoworks_cloud import (
     ThermoworksClient,
     ResourceNotFoundError,
 )
+from thermoworks_cloud.models import Device, DeviceChannel
 
 from .const import (
     CLOUD_PROVIDERS,
@@ -35,12 +37,32 @@ _LOGGER: logging.Logger = logging.getLogger(__package__)
 
 @dataclass
 class ThermoworksData:
-    """Class to hold data retrieved from the Thermoworks Cloud API."""
+    """Devices parsed from the latest API response."""
 
-    # List of devices retreived for the user
-    devices: list[ThermoworksDevice]
-    # Map of DeviceChannel's indexed by device id
-    device_channels: dict[str, list[ThermoworksChannel]]
+    # Keyed by device identifier (see ThermoworksDevice.get_identifier), so entities can
+    # look up their device directly. Each device holds its own channels.
+    devices: dict[str, ThermoworksDevice]
+
+
+def _parse_device(
+    api_device: Device, api_channels: Iterable[DeviceChannel]
+) -> ThermoworksDevice | None:
+    """Parse a device and its channels, or return None if the device can't be used.
+
+    A channel that can't be parsed is logged and left out, without dropping the device.
+    """
+    channels = []
+    for api_channel in api_channels:
+        try:
+            channels.append(ThermoworksChannel.from_api_channel(api_channel))
+        except MissingRequiredAttributeError as err:
+            _LOGGER.error("Channel %s for device %s: %s",
+                          getattr(api_channel, "number", None), api_device.serial, err)
+    try:
+        return ThermoworksDevice.from_api_device(api_device, channels)
+    except MissingRequiredAttributeError as err:
+        _LOGGER.error("Device %s: %s", api_device, err)
+        return None
 
 
 class ThermoworksCoordinator(DataUpdateCoordinator[ThermoworksData]):
@@ -93,10 +115,9 @@ class ThermoworksCoordinator(DataUpdateCoordinator[ThermoworksData]):
         self.api = None
 
     async def async_update_data(self) -> ThermoworksData:
-        """Fetch data from API endpoint.
+        """Fetch data from the API and parse it into devices keyed by identifier.
 
-        This is the place to pre-process the data to lookup tables
-        so entities can quickly look up their data.
+        Parsing happens once here, so entities only read typed data (see models.py).
         """
 
         _LOGGER.debug(
@@ -122,8 +143,7 @@ class ThermoworksCoordinator(DataUpdateCoordinator[ThermoworksData]):
                 _LOGGER.debug(
                     "Successfully authenticated with Thermoworks Cloud API")
 
-            devices: list[ThermoworksDevice] = []
-            device_channels_by_device: dict[str, list[ThermoworksChannel]] = {}
+            devices: dict[str, ThermoworksDevice] = {}
 
             user = await self.api.get_user()
             _LOGGER.debug("Retrieved user data: %s", user)
@@ -135,48 +155,35 @@ class ThermoworksCoordinator(DataUpdateCoordinator[ThermoworksData]):
             _LOGGER.debug("Retrieved %d devices for user", len(api_devices))
 
             for api_device in api_devices:
-                try:
-                    device = ThermoworksDevice.from_api_device(api_device)
-                    devices.append(device)
-                    _LOGGER.debug("Retrieved device %s", device.display_name())
-                except MissingRequiredAttributeError as err:
-                    _LOGGER.error("Device %s: %s", api_device, err)
-                    # Skip this device as it's missing critical data
+                if api_device.serial is None:
+                    _LOGGER.error("Device %s: missing serial", api_device)
+                    # Channels are fetched by serial, so there's nothing more to read
                     continue
 
-                device_channels = []
+                api_channels = []
                 # According to the observed behavior, channels seem to be 1 indexed
                 for channel in range(1, 10):
                     try:
-                        api_channel = await self.api.get_device_channel(
-                            device_serial=device.serial,
+                        api_channels.append(await self.api.get_device_channel(
+                            device_serial=api_device.serial,
                             channel=str(channel)
-                        )
-                        try:
-                            channel_data = ThermoworksChannel.from_api_channel(
-                                api_channel)
-                            device_channels.append(channel_data)
-                            _LOGGER.debug(
-                                "Retrieved channel %s for device %s",
-                                channel_data.display_name(), device.display_name())
-                        except MissingRequiredAttributeError as err:
-                            _LOGGER.error("Channel %s for device %s: %s",
-                                          channel, device.display_name(), err)
-                            # Skip this channel as it's missing critical data
+                        ))
                     except ResourceNotFoundError:
                         _LOGGER.debug("No more channels found for device %s after channel %s",
-                                      device.display_name(), channel-1)
+                                      api_device.serial, channel-1)
                         # Go until there are no more
                         break
                     except Exception as channel_err:
                         _LOGGER.error("Error fetching channel %s for device %s: %s",
-                                      channel, device.display_name(), channel_err)
+                                      channel, api_device.serial, channel_err)
                         # Continue with next channel
                         continue
 
-                device_channels_by_device[device.get_identifier()] = device_channels
-                _LOGGER.debug("Found %d channels for device %s",
-                              len(device_channels), device.display_name())
+                device = _parse_device(api_device, api_channels)
+                if device is not None:
+                    devices[device.get_identifier()] = device
+                    _LOGGER.debug("Found %d channels for device %s",
+                                  len(device.channels), device.display_name())
 
         except Exception as err:
             # This will show entities as unavailable by raising UpdateFailed exception
@@ -185,10 +192,7 @@ class ThermoworksCoordinator(DataUpdateCoordinator[ThermoworksData]):
         _LOGGER.debug(
             "Update completed: %d devices with data retrieved", len(devices))
 
-        return ThermoworksData(
-            devices=devices,
-            device_channels=device_channels_by_device,
-        )
+        return ThermoworksData(devices=devices)
 
     async def _async_update_api_data(self) -> ThermoworksData:
         """Fetch all devices and their channels in a single ThermoWorks API request."""
@@ -205,46 +209,11 @@ class ThermoworksCoordinator(DataUpdateCoordinator[ThermoworksData]):
             # This will show entities as unavailable by raising UpdateFailed exception
             raise UpdateFailed(f"Error communicating with API: {err}") from err
 
-        devices: list[ThermoworksDevice] = []
-        device_channels_by_device: dict[str, list[ThermoworksChannel]] = {}
+        devices: dict[str, ThermoworksDevice] = {}
         for api_device in api_devices:
-            try:
-                device = ThermoworksDevice.from_api_device(api_device)
-                devices.append(device)
-            except MissingRequiredAttributeError as err:
-                _LOGGER.error("Device %s: %s", api_device, err)
-                # Skip this device as it's missing critical data
-                continue
-
-            device_channels = []
-            for api_channel in api_device.channels or []:
-                try:
-                    device_channels.append(ThermoworksChannel.from_api_channel(api_channel))
-                except MissingRequiredAttributeError as err:
-                    _LOGGER.error("Channel for device %s: %s", device.display_name(), err)
-                    # Skip this channel as it's missing critical data
-            device_channels_by_device[device.get_identifier()] = device_channels
+            device = _parse_device(api_device, api_device.channels or [])
+            if device is not None:
+                devices[device.get_identifier()] = device
 
         _LOGGER.debug("Update completed: %d devices with data retrieved", len(devices))
-        return ThermoworksData(devices=devices, device_channels=device_channels_by_device)
-
-    def get_device_by_id(self, device_id: str) -> ThermoworksDevice | None:
-        """Return device by device id or serial."""
-        # Called by the battery sensor to get its updated data from self.data
-        for device in self.data.devices:
-            if device.get_identifier() == device_id:
-                return device
-
-        return None
-
-    def get_device_channel_by_id(
-        self, device_id: str, channel_id: str
-    ) -> ThermoworksChannel | None:
-        """Return device channel by device id and channel id."""
-        # Called by the temperature sensors to get their updated data from self.data
-
-        for device_channel in self.data.device_channels.get(device_id, []):
-            if device_channel.number == channel_id:
-                return device_channel
-
-        return None
+        return ThermoworksData(devices=devices)

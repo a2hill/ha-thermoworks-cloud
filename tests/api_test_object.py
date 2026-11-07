@@ -146,3 +146,9 @@ class ApiTestObject:
         )
 GET_DEVICES_CHARGING_RESPONSE = deepcopy(GET_DEVICES_RESPONSE)
 GET_DEVICES_CHARGING_RESPONSE["devices"][0]["batteryState"] = "charging"
+# The battery reading drops out while other device and channel values keep changing
+GET_DEVICES_NULL_BATTERY_RESPONSE = deepcopy(GET_DEVICES_RESPONSE)
+GET_DEVICES_NULL_BATTERY_RESPONSE["devices"][0].update({"battery": None, "wifiSignal": -70})
+GET_DEVICES_NULL_BATTERY_RESPONSE["devices"][0]["channels"][0]["value"] = 5.0
+GET_DEVICES_NO_DEVICES_RESPONSE = deepcopy(GET_DEVICES_RESPONSE)
+GET_DEVICES_NO_DEVICES_RESPONSE["devices"] = []

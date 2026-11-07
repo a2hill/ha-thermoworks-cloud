@@ -1,163 +1,49 @@
-"""Models for Thermoworks Cloud integration."""
+"""Domain types for the Thermoworks Cloud integration.
 
-from dataclasses import dataclass
+The coordinator parses each API response into these types once per update. They describe
+devices and channels as the API reports them, and know nothing about Home Assistant entities.
+
+- A device needs a serial and a channel needs a number and units. Anything without them is
+  rejected here, so nothing downstream has to check for them again.
+- Everything else stays optional because devices report different fields. Each entity decides
+  what it needs from these types in its own `parse` method (see `entity.py`).
+- Values more than one entity depends on, such as whether a channel has a valid reading, are
+  defined once here as cached properties so the rule can't drift between entities. A new
+  object is built on every update, so a cached value never outlives the data it came from.
+"""
+
+from collections.abc import Iterable, Mapping
+from dataclasses import dataclass, field
 from datetime import datetime
-from types import NoneType
-from typing import Any, Optional, Protocol, Type, TypeGuard, Union, get_args, get_origin, get_type_hints
+from functools import cached_property
+from typing import Optional
+
+from homeassistant.util import dt as dt_util
 from thermoworks_cloud.models import Alarm, ChannelStatus, Device, DeviceChannel, Fan
 
 from .exceptions import MissingRequiredAttributeError
 
 
-def is_optional_type(tp: Any) -> bool:
-    """Returns True if the type is Optional[...]"""
-    origin = get_origin(tp)
-    args = get_args(tp)
-    return origin is Union and NoneType in args
-
-
-def has_required_attributes(obj: Any, protocol_cls: Type) -> bool:
-    hints = get_type_hints(protocol_cls, include_extras=True)
-    for attr, typ in hints.items():
-        if not is_optional_type(typ):
-            if not hasattr(obj, attr):
-                return False
-            if getattr(obj, attr) is None:
-                return False
-    return True
-
-
-def get_missing_attributes(obj: Any, protocol_cls: Type) -> list[str]:
-    hints = get_type_hints(protocol_cls, include_extras=True)
-    missing_attributes = []
-    for attr, typ in hints.items():
-        if not is_optional_type(typ):
-            if not hasattr(obj, attr):
-                missing_attributes.append(attr)
-            elif getattr(obj, attr) is None:
-                missing_attributes.append(attr)
-    return missing_attributes
+def _as_utc(value: datetime | str | None) -> datetime | None:
+    """Parse an API timestamp into an aware UTC datetime, or None if it can't be read."""
+    if value is None:
+        return None
+    if not isinstance(value, datetime):
+        value = dt_util.parse_datetime(str(value))
+        if value is None:
+            return None
+    return dt_util.as_utc(value)
 
 
 @dataclass(frozen=True)
-class BaseDevice(Protocol):
-    serial: str
-    device_id: Optional[str] = None
-    label: Optional[str] = None
-    device_name: Optional[str] = None
-    device_display_units: Optional[str] = None
-    firmware: Optional[str] = None
-    battery: Optional[float] = None
-    battery_state: Optional[str] = None
-    wifi_strength: Optional[float] = None
-    signal_strength: Optional[float] = None
-    fan: Optional[Fan] = None
-    last_seen: Optional[datetime] = None
-    transmit_interval_in_seconds: Optional[int] = None
-
-
-@dataclass(frozen=True)
-class ThermoworksDevice(BaseDevice):
-    """Represents a Thermoworks device with required attributes for this integration."""
-
-    @classmethod
-    def is_thermoworks_device(cls, obj: Any) -> TypeGuard["ThermoworksDevice"]:
-        """Return True if the object is a ThermoworksDevice."""
-        return has_required_attributes(obj, ThermoworksDevice)
-
-    @classmethod
-    def from_api_device(cls, device: Device) -> "ThermoworksDevice":
-        """Create a ThermoworksDevice from the API device object."""
-        if not ThermoworksDevice.is_thermoworks_device(device):
-            raise MissingRequiredAttributeError(
-                get_missing_attributes(device, ThermoworksDevice), ThermoworksDevice)
-
-        return cls(
-            device_id=getattr(device, 'device_id', None),
-            label=device.label,
-            device_name=device.device_name,
-            device_display_units=getattr(device, "device_display_units", None),
-            firmware=device.firmware,
-            serial=device.serial,
-            battery=device.battery,
-            # Indicates whether the battery is charging
-            battery_state=device.battery_state,
-            wifi_strength=device.wifi_strength,
-            signal_strength=device.signal_strength,
-            fan=getattr(device, "fan", None),
-            last_seen=device.last_seen,
-            transmit_interval_in_seconds=device.transmit_interval_in_seconds,
-        )
-
-    def get_identifier(self) -> str:
-        """Return the device identifier, preferring device_id but falling back to serial."""
-        return self.device_id if self.device_id else self.serial
-
-    def display_name(self) -> str:
-        """Return the display name of the device."""
-        # {user given name} ({rfx gateway, rfx meat, node, etc.} - {usually serial number})
-        return f"{self.label or "unnamed device"} ({self.device_name or "unknown device"} - {self.get_identifier()})"
-
-
-class DeviceWithBattery(ThermoworksDevice):
-    """Protocol for devices with battery information."""
-    battery: float
-
-    @classmethod
-    def is_protocol_compliant(cls, obj: Any) -> TypeGuard["DeviceWithBattery"]:
-        """Return True if the object implements DeviceWithBattery protocol."""
-        return has_required_attributes(obj, DeviceWithBattery)
-
-
-class DeviceWithSignalStrength(ThermoworksDevice):
-    """Protocol for devices with signal strength information."""
-    signal_strength: float
-
-    @classmethod
-    def is_protocol_compliant(cls, obj: Any) -> TypeGuard["DeviceWithSignalStrength"]:
-        """Return True if the object implements DeviceWithSignalStrength protocol."""
-        return has_required_attributes(obj, DeviceWithSignalStrength)
-
-
-class DeviceWithFan(ThermoworksDevice):
-    """Protocol for devices with fan accessory information."""
-    fan: Fan
-
-    @classmethod
-    def is_protocol_compliant(cls, obj: Any) -> TypeGuard["DeviceWithFan"]:
-        """Return True if the object implements DeviceWithFan protocol."""
-        return has_required_attributes(obj, DeviceWithFan)
-
-
-class DeviceWithLastSeen(ThermoworksDevice):
-    """Protocol for devices with last_seen attribute."""
-    last_seen: datetime
-
-    @classmethod
-    def is_protocol_compliant(cls, obj: Any) -> TypeGuard["DeviceWithLastSeen"]:
-        """Return True if the object implements DeviceWithLastSeen protocol."""
-        return has_required_attributes(obj, DeviceWithLastSeen)
-
-
-class DeviceWithTransmitInterval(ThermoworksDevice):
-    """Protocol for devices with transmit interval attribute."""
-    transmit_interval_in_seconds: int
-
-    @classmethod
-    def is_protocol_compliant(cls, obj: Any) -> TypeGuard["DeviceWithTransmitInterval"]:
-        """Return True if the object implements DeviceWithTransmitInterval protocol."""
-        return has_required_attributes(obj, DeviceWithTransmitInterval)
-
-
-@dataclass
 class ThermoworksChannel:
-    """Represents a Thermoworks device channel with required properties for this integration."""
+    """A device channel, such as a probe or humidity sensor."""
 
     number: str
-    value: Optional[float]
     units: str
-    status: Optional[str]
-    label: Optional[str]
+    value: Optional[float] = None
+    status: Optional[str] = None
+    label: Optional[str] = None
     alarm_high: Optional[Alarm] = None
     alarm_low: Optional[Alarm] = None
     id: Optional[str] = None
@@ -168,26 +54,20 @@ class ThermoworksChannel:
     last_seen: Optional[datetime] = None
 
     @classmethod
-    def is_thermoworks_channel(cls, obj: Any) -> TypeGuard["ThermoworksChannel"]:
-        """Return True if the device is a ThermoworksChannel."""
-        return has_required_attributes(obj, ThermoworksChannel)
-
-    @classmethod
     def from_api_channel(cls, channel: DeviceChannel) -> "ThermoworksChannel":
-        """Create a ThermoworksChannel from the API channel object."""
-        if not ThermoworksChannel.is_thermoworks_channel(channel):
-            raise MissingRequiredAttributeError(
-                get_missing_attributes(channel, ThermoworksChannel), ThermoworksChannel)
+        """Parse an API channel, rejecting one that has no number or units."""
+        missing = [name for name in ("number", "units") if getattr(channel, name) is None]
+        if missing:
+            raise MissingRequiredAttributeError(missing, cls)
 
-        # All required attributes exist, create the object
         return cls(
             number=channel.number,
-            value=channel.value,
             units=channel.units,
+            value=channel.value,
             status=channel.status,
             label=channel.label,
-            alarm_high=getattr(channel, "alarm_high", None),
-            alarm_low=getattr(channel, "alarm_low", None),
+            alarm_high=channel.alarm_high,
+            alarm_low=channel.alarm_low,
             id=channel.id,
             enabled=channel.enabled,
             probe_failed=channel.probe_failed,
@@ -196,15 +76,22 @@ class ThermoworksChannel:
             last_seen=channel.last_seen,
         )
 
-    @property
-    def has_valid_reading(self) -> bool:
-        """Reject explicit channel failures without treating unknown metadata as failure."""
-        return (
-            self.value is not None
-            and self.enabled is not False
-            and self.probe_failed is not True
-            and self.status != ChannelStatus.NO_PROBE
-        )
+    @cached_property
+    def reading(self) -> float | None:
+        """Return the measurement, or None when the channel reports it can't be trusted.
+
+        This is the one definition of a valid reading. The measurement and the alarm
+        entities all use it. Unknown metadata (None) is not treated as a failure, only an
+        explicit one is.
+        """
+        if (
+            self.value is None
+            or self.enabled is False
+            or self.probe_failed is True
+            or self.status == ChannelStatus.NO_PROBE
+        ):
+            return None
+        return float(self.value)
 
     def display_name(self) -> str:
         """Return the display name of the channel."""
@@ -212,21 +99,65 @@ class ThermoworksChannel:
         return f"{self.label or "unnamed channel"} (Ch. {self.number})"
 
 
-class ChannelWithHighAlarm(ThermoworksChannel):
-    """Protocol for channels with high alarm information."""
-    alarm_high: Alarm
+@dataclass(frozen=True)
+class ThermoworksDevice:
+    """A device on the account, with its channels keyed by channel number."""
+
+    serial: str
+    device_id: Optional[str] = None
+    label: Optional[str] = None
+    device_name: Optional[str] = None
+    device_display_units: Optional[str] = None
+    firmware: Optional[str] = None
+    battery: Optional[float] = None
+    battery_state: Optional[str] = None
+    signal_strength: Optional[float] = None
+    fan: Optional[Fan] = None
+    last_seen: Optional[datetime] = None
+    transmit_interval_in_seconds: Optional[int] = None
+    channels: Mapping[str, ThermoworksChannel] = field(default_factory=dict)
 
     @classmethod
-    def is_protocol_compliant(cls, obj: Any) -> TypeGuard["ChannelWithHighAlarm"]:
-        """Return True if the object implements ChannelWithHighAlarm protocol."""
-        return has_required_attributes(obj, ChannelWithHighAlarm)
+    def from_api_device(
+        cls, device: Device, channels: Iterable[ThermoworksChannel] = ()
+    ) -> "ThermoworksDevice":
+        """Parse an API device and its already parsed channels, rejecting one with no serial."""
+        if device.serial is None:
+            raise MissingRequiredAttributeError(["serial"], cls)
 
+        return cls(
+            serial=device.serial,
+            device_id=device.device_id,
+            label=device.label,
+            device_name=device.device_name,
+            device_display_units=device.device_display_units,
+            firmware=device.firmware,
+            battery=device.battery,
+            battery_state=device.battery_state,
+            # The library's Wi-Fi/gateway RSSI abstraction, so it works for every device type
+            signal_strength=device.signal_strength,
+            fan=device.fan,
+            last_seen=_as_utc(device.last_seen),
+            transmit_interval_in_seconds=device.transmit_interval_in_seconds,
+            channels={channel.number: channel for channel in channels},
+        )
 
-class ChannelWithLowAlarm(ThermoworksChannel):
-    """Protocol for channels with low alarm information."""
-    alarm_low: Alarm
+    @cached_property
+    def connected_fan(self) -> Fan | None:
+        """Return the fan accessory only while it's connected.
 
-    @classmethod
-    def is_protocol_compliant(cls, obj: Any) -> TypeGuard["ChannelWithLowAlarm"]:
-        """Return True if the object implements ChannelWithLowAlarm protocol."""
-        return has_required_attributes(obj, ChannelWithLowAlarm)
+        A disconnected fan still reports its last state and set temperature, which
+        shouldn't be shown as current.
+        """
+        if self.fan is None or self.fan.connected is not True:
+            return None
+        return self.fan
+
+    def get_identifier(self) -> str:
+        """Return the device identifier, preferring device_id but falling back to serial."""
+        return self.device_id if self.device_id else self.serial
+
+    def display_name(self) -> str:
+        """Return the display name of the device."""
+        # {user given name} ({rfx gateway, rfx meat, node, etc.} - {usually serial number})
+        return f"{self.label or "unnamed device"} ({self.device_name or "unknown device"} - {self.get_identifier()})"
