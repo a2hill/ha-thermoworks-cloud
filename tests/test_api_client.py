@@ -33,6 +33,7 @@ from tests.api_test_object import (
     GET_DEVICES_FAILED_PROBE_RESPONSE,
     GET_DEVICES_NULL_READING_RESPONSE,
     GET_DEVICES_NULL_UNITS_RESPONSE,
+    GET_DEVICES_CHARGING_RESPONSE,
     GET_DEVICES_NO_CHANNELS_RESPONSE,
     GET_DEVICES_DISABLED_CHANNEL_RESPONSE,
     GET_DEVICES_UNKNOWN_CHANNEL_METADATA_RESPONSE,
@@ -49,6 +50,7 @@ TEMPERATURE_ENTITY = "sensor.12_34_56_78_90_ab_ch_1_temperature"
 HIGH_THRESHOLD_ENTITY = "sensor.12_34_56_78_90_ab_ch_1_high_alarm_threshold"
 HIGH_ALARM_ENTITY = "binary_sensor.12_34_56_78_90_ab_ch_1_high_alarm"
 LOW_ALARM_ENTITY = "binary_sensor.12_34_56_78_90_ab_ch_1_low_alarm"
+BATTERY_ENTITY = "sensor.12_34_56_78_90_ab_battery"
 
 
 def _api_key_entry(hass: HomeAssistant) -> MockConfigEntry:
@@ -687,3 +689,21 @@ async def test_channel_api_id_does_not_replace_entity_identity(
     after = registry.async_get(TEMPERATURE_ENTITY)
     assert after is not None
     assert after.unique_id == unique_id
+
+
+async def test_charging_battery_uses_the_charging_icon(
+    hass: HomeAssistant, api_test_object: ApiTestObject
+) -> None:
+    """The battery state from the API reaches the battery sensor's icon."""
+
+    # Setup
+    entry = _api_key_entry(hass)
+    api_test_object.respond_to_devices(body=GET_DEVICES_CHARGING_RESPONSE)
+
+    # Act
+    await _set_up(hass, entry)
+
+    # Assert
+    state = hass.states.get(BATTERY_ENTITY)
+    assert state is not None
+    assert state.attributes.get("icon") == "mdi:battery-charging-100"
