@@ -14,7 +14,7 @@ devices and channels as the API reports them, and know nothing about Home Assist
 """
 
 from collections.abc import Iterable, Mapping
-from dataclasses import InitVar, dataclass, field
+from dataclasses import InitVar, dataclass, field, replace
 from datetime import datetime
 from typing import Optional
 
@@ -102,67 +102,12 @@ class ThermoworksChannel:
 
 
 @dataclass(frozen=True)
-class ThermoworksDevice:
-    """A device on the account, with its channels keyed by channel number."""
-
-    serial: str
-    device_id: Optional[str] = None
-    label: Optional[str] = None
-    device_name: Optional[str] = None
-    device_display_units: Optional[str] = None
-    firmware: Optional[str] = None
-    battery: Optional[float] = None
-    battery_state: Optional[str] = None
-    signal_strength: Optional[float] = None
-    last_seen: Optional[datetime] = None
-    transmit_interval_in_seconds: Optional[int] = None
-    channels: Mapping[str, ThermoworksChannel] = field(default_factory=dict)
-
-    @classmethod
-    def from_api_device(
-        cls, device: Device, channels: Iterable[ThermoworksChannel] = ()
-    ) -> "ThermoworksDevice":
-        """Parse an API device and its already parsed channels, rejecting one with no serial."""
-        if device.serial is None:
-            raise MissingRequiredAttributeError(["serial"], cls)
-
-        return cls(
-            serial=device.serial,
-            device_id=device.device_id,
-            label=device.label,
-            device_name=device.device_name,
-            device_display_units=device.device_display_units,
-            firmware=device.firmware,
-            battery=device.battery,
-            battery_state=device.battery_state,
-            # The library's Wi-Fi/gateway RSSI abstraction, so it works for every device type
-            signal_strength=device.signal_strength,
-            last_seen=_as_utc(device.last_seen),
-            transmit_interval_in_seconds=device.transmit_interval_in_seconds,
-            channels={channel.number: channel for channel in channels},
-        )
-
-    def get_identifier(self) -> str:
-        """Return the device identifier, preferring device_id but falling back to serial."""
-        return self.device_id if self.device_id else self.serial
-
-    @property
-    def registry_identifier(self) -> str:
-        """Return the identifier this device is registered under in Home Assistant."""
-        return format_mac(self.get_identifier())
-
-    def display_name(self) -> str:
-        """Return the display name of the device."""
-        # {user given name} ({rfx gateway, rfx meat, node, etc.} - {usually serial number})
-        return f"{self.label or "unnamed device"} ({self.device_name or "unknown device"} - {self.get_identifier()})"
-
-
-@dataclass(frozen=True)
 class ThermoworksFan:
     """A fan accessory, such as a Billows, connected to a gateway.
 
-    The API reports the fan as a field on its gateway, but it's its own device, so it's
-    parsed into one. Its entities then read from it and attach to it like any other device.
+    The API reports the fan as a field on its gateway, and it's kept on the gateway here
+    too, like channels. It's still its own device in Home Assistant, so it has its own
+    registry identifier, and its entities attach to it like any other device.
     """
 
     # Derived from the gateway's, since the API gives the fan no identifier of its own
@@ -179,7 +124,7 @@ class ThermoworksFan:
     fan_channel: Optional[str] = None
 
     @classmethod
-    def from_api_fan(cls, fan: Fan, gateway: ThermoworksDevice) -> "ThermoworksFan":
+    def from_api_fan(cls, fan: Fan, gateway: "ThermoworksDevice") -> "ThermoworksFan":
         """Parse a fan from its gateway's API data."""
         return cls(
             registry_identifier=f"{gateway.registry_identifier}-fan",
@@ -192,3 +137,66 @@ class ThermoworksFan:
             fan_channel=fan.fan_channel,
         )
 
+
+@dataclass(frozen=True)
+class ThermoworksDevice:
+    """A device on the account, with its channels keyed by channel number."""
+
+    serial: str
+    device_id: Optional[str] = None
+    label: Optional[str] = None
+    device_name: Optional[str] = None
+    device_display_units: Optional[str] = None
+    firmware: Optional[str] = None
+    battery: Optional[float] = None
+    battery_state: Optional[str] = None
+    signal_strength: Optional[float] = None
+    last_seen: Optional[datetime] = None
+    transmit_interval_in_seconds: Optional[int] = None
+    channels: Mapping[str, ThermoworksChannel] = field(default_factory=dict)
+    fan: Optional[ThermoworksFan] = None
+
+    @classmethod
+    def from_api_device(
+        cls, device: Device, channels: Iterable[ThermoworksChannel] = ()
+    ) -> "ThermoworksDevice":
+        """Parse an API device, its fan and its already parsed channels.
+
+        A device with no serial is rejected.
+        """
+        if device.serial is None:
+            raise MissingRequiredAttributeError(["serial"], cls)
+
+        gateway = cls(
+            serial=device.serial,
+            device_id=device.device_id,
+            label=device.label,
+            device_name=device.device_name,
+            device_display_units=device.device_display_units,
+            firmware=device.firmware,
+            battery=device.battery,
+            battery_state=device.battery_state,
+            # The library's Wi-Fi/gateway RSSI abstraction, so it works for every device type
+            signal_strength=device.signal_strength,
+            last_seen=_as_utc(device.last_seen),
+            transmit_interval_in_seconds=device.transmit_interval_in_seconds,
+            channels={channel.number: channel for channel in channels},
+        )
+        if device.fan is None:
+            return gateway
+        # The fan's identity and name come from its gateway, so it's parsed second
+        return replace(gateway, fan=ThermoworksFan.from_api_fan(device.fan, gateway))
+
+    def get_identifier(self) -> str:
+        """Return the device identifier, preferring device_id but falling back to serial."""
+        return self.device_id if self.device_id else self.serial
+
+    @property
+    def registry_identifier(self) -> str:
+        """Return the identifier this device is registered under in Home Assistant."""
+        return format_mac(self.get_identifier())
+
+    def display_name(self) -> str:
+        """Return the display name of the device."""
+        # {user given name} ({rfx gateway, rfx meat, node, etc.} - {usually serial number})
+        return f"{self.label or "unnamed device"} ({self.device_name or "unknown device"} - {self.get_identifier()})"

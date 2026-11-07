@@ -3,27 +3,26 @@
 from types import SimpleNamespace
 
 from homeassistant.const import UnitOfTemperature
-from thermoworks_cloud.models import Fan
+from thermoworks_cloud.models import Device, Fan
 
 from custom_components.thermoworks_cloud.binary_sensor import FanConnectedSensor
 from custom_components.thermoworks_cloud.const import DOMAIN
-from custom_components.thermoworks_cloud.models import ThermoworksDevice, ThermoworksFan
+from custom_components.thermoworks_cloud.models import ThermoworksDevice
 from custom_components.thermoworks_cloud.sensor import (
     FanSetTemperatureSensor,
     FanStateSensor,
 )
 
-GATEWAY = ThermoworksDevice(serial="RFX123", label="RFX Gateway", device_display_units="F")
-
-
 def _fan_entities(fan: Fan):
-    """Build the fan entities for a fan on the test gateway."""
+    """Build the fan entities for a gateway with this fan."""
     coordinator = SimpleNamespace(last_update_success=True)
-    parsed = ThermoworksFan.from_api_fan(fan, GATEWAY)
+    gateway = ThermoworksDevice.from_api_device(
+        Device(serial="RFX123", label="RFX Gateway", device_display_units="F", fan=fan)
+    )
     return (
-        FanConnectedSensor("binary_sensor.rfx_fan_connected", coordinator, parsed),
-        FanStateSensor("sensor.rfx_fan_state", coordinator, parsed),
-        FanSetTemperatureSensor("sensor.rfx_fan_set_temperature", coordinator, parsed),
+        FanConnectedSensor("binary_sensor.rfx_fan_connected", coordinator, gateway),
+        FanStateSensor("sensor.rfx_fan_state", coordinator, gateway),
+        FanSetTemperatureSensor("sensor.rfx_fan_set_temperature", coordinator, gateway),
     )
 
 

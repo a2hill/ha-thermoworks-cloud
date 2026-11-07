@@ -30,7 +30,7 @@ from .const import (
     PROVIDER_THERMOWORKS,
 )
 from .exceptions import MissingRequiredAttributeError
-from .models import ThermoworksChannel, ThermoworksDevice, ThermoworksFan
+from .models import ThermoworksChannel, ThermoworksDevice
 
 _LOGGER: logging.Logger = logging.getLogger(__package__)
 
@@ -40,17 +40,8 @@ class ThermoworksData:
     """Devices parsed from the latest API response."""
 
     # Keyed by device identifier (see ThermoworksDevice.get_identifier), so entities can
-    # look up their device directly. Each device holds its own channels.
+    # look up their device directly. Each device holds its own channels and fan.
     devices: dict[str, ThermoworksDevice] = field(default_factory=dict)
-    # Fan accessories, parsed into their own devices. Keyed by registry identifier.
-    fans: dict[str, ThermoworksFan] = field(default_factory=dict)
-
-    def add(self, api_device: Device, device: ThermoworksDevice) -> None:
-        """Store a parsed device, and its fan accessory if it has one."""
-        self.devices[device.get_identifier()] = device
-        if api_device.fan is not None:
-            fan = ThermoworksFan.from_api_fan(api_device.fan, device)
-            self.fans[fan.registry_identifier] = fan
 
 
 def _api_device_name(api_device: Device) -> str:
@@ -204,7 +195,7 @@ class ThermoworksCoordinator(DataUpdateCoordinator[ThermoworksData]):
 
                 device = _parse_device(api_device, api_channels)
                 if device is not None:
-                    data.add(api_device, device)
+                    data.devices[device.get_identifier()] = device
                     _LOGGER.debug("Found %d channels for device %s",
                                   len(device.channels), device.display_name())
 
@@ -236,7 +227,7 @@ class ThermoworksCoordinator(DataUpdateCoordinator[ThermoworksData]):
         for api_device in api_devices:
             device = _parse_device(api_device, api_device.channels or [])
             if device is not None:
-                data.add(api_device, device)
+                data.devices[device.get_identifier()] = device
 
         _LOGGER.debug("Update completed: %d devices with data retrieved", len(data.devices))
         return data

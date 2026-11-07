@@ -2,8 +2,8 @@
 
 Every entity follows the same rules:
 
-- On each coordinator update, the entity finds its source (a device, one of its channels, or
-  a fan accessory) and passes it to its own `parse` method. `parse` returns a view: a small
+- On each coordinator update, the entity finds its source (a device, or one of its channels
+  or its fan accessory) and passes it to its own `parse` method. `parse` returns a view: a small
   frozen dataclass holding everything the entity shows. Entity properties read only from the
   view, never from the source, so each entity's dependencies are written down in one place.
 - A view has two parts. Its `entity_state` is each entity's own type holding what it
@@ -222,28 +222,31 @@ class ThermoworksChannelEntity[R](ThermoworksEntity[ThermoworksChannel, R]):
 
 
 class ThermoworksFanEntity[R](ThermoworksEntity[ThermoworksFan, R]):
-    """An entity whose value comes from a fan accessory."""
+    """An entity whose value comes from a gateway's fan accessory."""
 
     def __init__(
         self,
         entity_id: str,
         coordinator: ThermoworksCoordinator,
-        fan: ThermoworksFan,
+        device: ThermoworksDevice,
     ) -> None:
-        """Initialise the entity from the fan it was discovered on."""
-        super().__init__(entity_id, coordinator, fan.registry_identifier, fan)
+        """Initialise the entity from the gateway it was discovered on, which has a fan."""
+        assert device.fan is not None
+        self._device_identifier = device.get_identifier()
+        super().__init__(entity_id, coordinator, device.fan.registry_identifier, device.fan)
 
     @classmethod
     def build(
-        cls, hass: HomeAssistant, coordinator: ThermoworksCoordinator, fan: ThermoworksFan
+        cls, hass: HomeAssistant, coordinator: ThermoworksCoordinator, device: ThermoworksDevice
     ) -> Self:
         """Create the entity with an entity id generated from its identity."""
-        object_id = f"{fan.registry_identifier}_{cls.entity_suffix}"
+        object_id = f"{device.get_identifier()}_fan_{cls.entity_suffix}"
         return cls(
             async_generate_entity_id(cls.entity_id_format, object_id, hass=hass),
             coordinator,
-            fan,
+            device,
         )
 
     def _find_source(self, data: ThermoworksData) -> ThermoworksFan | None:
-        return data.fans.get(self._registry_identifier)
+        device = data.devices.get(self._device_identifier)
+        return device.fan if device else None

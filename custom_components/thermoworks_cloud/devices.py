@@ -43,12 +43,12 @@ def async_register_devices(
             sw_version=device.firmware,
             serial_number=device.serial,
         )
-    # After the gateways, which fans are connected through
-    for fan in coordinator.data.fans.values():
-        registry.async_get_or_create(
-            config_entry_id=entry.entry_id,
-            identifiers={(DOMAIN, fan.registry_identifier)},
-            name=fan.name,
-            manufacturer=MANUFACTURER,
-            via_device=(DOMAIN, fan.gateway_registry_identifier),
-        )
+        if device.fan is not None:
+            # After its gateway, which the fan is connected through
+            registry.async_get_or_create(
+                config_entry_id=entry.entry_id,
+                identifiers={(DOMAIN, device.fan.registry_identifier)},
+                name=device.fan.name,
+                manufacturer=MANUFACTURER,
+                via_device=(DOMAIN, device.fan.gateway_registry_identifier),
+            )

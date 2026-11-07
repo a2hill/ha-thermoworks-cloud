@@ -3,13 +3,12 @@
 from types import SimpleNamespace
 from unittest import TestCase
 
-from thermoworks_cloud.models import Fan
+from thermoworks_cloud.models import Device, Fan
 
 from custom_components.thermoworks_cloud.binary_sensor import HighAlarmBinarySensor
 from custom_components.thermoworks_cloud.models import (
     ThermoworksChannel,
     ThermoworksDevice,
-    ThermoworksFan,
 )
 from custom_components.thermoworks_cloud.sensor import (
     BatterySensor,
@@ -127,9 +126,10 @@ class TestDeviceNaming(TestCase):
         temperature = TemperatureSensor(
             "sensor.temperature", coordinator, device, channel
         )
-        fan = FanStateSensor(
-            "sensor.fan", coordinator, ThermoworksFan.from_api_fan(Fan(connected=True), device)
+        gateway = ThermoworksDevice.from_api_device(
+            Device(serial=device.serial, device_id=device.device_id, fan=Fan(connected=True))
         )
+        fan = FanStateSensor("sensor.fan", coordinator, gateway)
 
         # Assert
         self.assertEqual(
@@ -162,9 +162,10 @@ class TestDeviceNaming(TestCase):
         temperature = TemperatureSensor(
             "sensor.temperature", coordinator, device, channel
         )
-        fan = FanStateSensor(
-            "sensor.fan", coordinator, ThermoworksFan.from_api_fan(Fan(connected=True), device)
+        gateway = ThermoworksDevice.from_api_device(
+            Device(serial=device.serial, device_id=device.device_id, fan=Fan(connected=True))
         )
+        fan = FanStateSensor("sensor.fan", coordinator, gateway)
 
         # Assert
         self.assertEqual(

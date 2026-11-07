@@ -87,6 +87,11 @@ async def async_setup_entry(
                 continue
             new_entities.append(device_sensor.build(hass, coordinator, device))
 
+        if device.fan is not None:
+            new_entities.extend(
+                fan_sensor.build(hass, coordinator, device) for fan_sensor in FAN_SENSORS
+            )
+
         for device_channel in device.channels.values():
             if _ha_unit(device_channel.units) is None:
                 _LOGGER.warning(
@@ -106,10 +111,6 @@ async def async_setup_entry(
                     channel_sensor.build(hass, coordinator, device, device_channel)
                 )
 
-    for fan in coordinator.data.fans.values():
-        new_entities.extend(
-            fan_sensor.build(hass, coordinator, fan) for fan_sensor in FAN_SENSORS
-        )
 
     if len(new_entities) > 0:
         _LOGGER.debug("New entities to create: %d", len(new_entities))

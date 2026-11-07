@@ -31,15 +31,15 @@ async def async_setup_entry(
 
     new_entities: list[BinarySensorEntity] = []
     for device in coordinator.data.devices.values():
+        if device.fan is not None:
+            new_entities.append(FanConnectedSensor.build(hass, coordinator, device))
+
         for device_channel in device.channels.values():
             for alarm_sensor in (HighAlarmBinarySensor, LowAlarmBinarySensor):
                 if alarm_sensor.supported(device_channel):
                     new_entities.append(
                         alarm_sensor.build(hass, coordinator, device, device_channel)
                     )
-
-    for fan in coordinator.data.fans.values():
-        new_entities.append(FanConnectedSensor.build(hass, coordinator, fan))
 
     async_add_entities(new_entities)
 
