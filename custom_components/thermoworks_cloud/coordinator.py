@@ -1,7 +1,7 @@
 """Coordinates data updates from the Thermoworks Cloud API."""
 
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import timedelta
 import logging
 
@@ -30,7 +30,7 @@ from .const import (
     PROVIDER_THERMOWORKS,
 )
 from .exceptions import MissingRequiredAttributeError
-from .models import ThermoworksDevice, ThermoworksChannel
+from .models import ThermoworksChannel, ThermoworksDevice, ThermoworksFan
 
 _LOGGER: logging.Logger = logging.getLogger(__package__)
 
@@ -41,7 +41,16 @@ class ThermoworksData:
 
     # Keyed by device identifier (see ThermoworksDevice.get_identifier), so entities can
     # look up their device directly. Each device holds its own channels.
-    devices: dict[str, ThermoworksDevice]
+    devices: dict[str, ThermoworksDevice] = field(default_factory=dict)
+    # Fan accessories, parsed into their own devices. Keyed by registry identifier.
+    fans: dict[str, ThermoworksFan] = field(default_factory=dict)
+
+    def add(self, api_device: Device, device: ThermoworksDevice) -> None:
+        """Store a parsed device, and its fan accessory if it has one."""
+        self.devices[device.get_identifier()] = device
+        if api_device.fan is not None:
+            fan = ThermoworksFan.from_api_fan(api_device.fan, device)
+            self.fans[fan.registry_identifier] = fan
 
 
 def _api_device_name(api_device: Device) -> str:
@@ -156,7 +165,7 @@ class ThermoworksCoordinator(DataUpdateCoordinator[ThermoworksData]):
                 _LOGGER.debug(
                     "Successfully authenticated with Thermoworks Cloud API")
 
-            devices: dict[str, ThermoworksDevice] = {}
+            data = ThermoworksData()
 
             user = await self.api.get_user()
             _LOGGER.debug("Retrieved user data: %s", user)
@@ -195,7 +204,7 @@ class ThermoworksCoordinator(DataUpdateCoordinator[ThermoworksData]):
 
                 device = _parse_device(api_device, api_channels)
                 if device is not None:
-                    devices[device.get_identifier()] = device
+                    data.add(api_device, device)
                     _LOGGER.debug("Found %d channels for device %s",
                                   len(device.channels), device.display_name())
 
@@ -204,9 +213,9 @@ class ThermoworksCoordinator(DataUpdateCoordinator[ThermoworksData]):
             raise UpdateFailed(f"Error communicating with API: {err}") from err
 
         _LOGGER.debug(
-            "Update completed: %d devices with data retrieved", len(devices))
+            "Update completed: %d devices with data retrieved", len(data.devices))
 
-        return ThermoworksData(devices=devices)
+        return data
 
     async def _async_update_api_data(self) -> ThermoworksData:
         """Fetch all devices and their channels in a single ThermoWorks API request."""
@@ -223,11 +232,11 @@ class ThermoworksCoordinator(DataUpdateCoordinator[ThermoworksData]):
             # This will show entities as unavailable by raising UpdateFailed exception
             raise UpdateFailed(f"Error communicating with API: {err}") from err
 
-        devices: dict[str, ThermoworksDevice] = {}
+        data = ThermoworksData()
         for api_device in api_devices:
             device = _parse_device(api_device, api_device.channels or [])
             if device is not None:
-                devices[device.get_identifier()] = device
+                data.add(api_device, device)
 
-        _LOGGER.debug("Update completed: %d devices with data retrieved", len(devices))
-        return ThermoworksData(devices=devices)
+        _LOGGER.debug("Update completed: %d devices with data retrieved", len(data.devices))
+        return data

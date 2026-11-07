@@ -958,3 +958,34 @@ async def test_unreported_fan_values_are_unknown(
         assert state is not None, entity_id
         assert state.state == value, entity_id
 
+
+
+async def test_every_entity_attaches_to_a_registered_device(
+    hass: HomeAssistant, api_test_object: ApiTestObject
+) -> None:
+    """Entities and device registration agree on identifiers.
+
+    An entity attaching to an identifier that wasn't registered would get an empty device
+    with no name, so check the result rather than how identifiers are built.
+    """
+
+    # Setup
+    entry = _api_key_entry(hass)
+    api_test_object.respond_to_devices(body=GET_DEVICES_FAN_RESPONSE)
+
+    # Act
+    await _set_up(hass, entry)
+
+    # Assert
+    devices = dr.async_get(hass)
+    entities = er.async_entries_for_config_entry(er.async_get(hass), entry.entry_id)
+    assert any(entity.unique_id.endswith("-fan-state") for entity in entities)
+    for entity in entities:
+        assert entity.device_id is not None, entity.entity_id
+        device = devices.async_get(entity.device_id)
+        assert device is not None, entity.entity_id
+        # The scan interval number is on the config entry's own service device
+        if device.entry_type is dr.DeviceEntryType.SERVICE:
+            continue
+        assert device.manufacturer == "ThermoWorks", entity.entity_id
+        assert device.name is not None, entity.entity_id

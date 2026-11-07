@@ -9,6 +9,7 @@ from custom_components.thermoworks_cloud.binary_sensor import HighAlarmBinarySen
 from custom_components.thermoworks_cloud.models import (
     ThermoworksChannel,
     ThermoworksDevice,
+    ThermoworksFan,
 )
 from custom_components.thermoworks_cloud.sensor import (
     BatterySensor,
@@ -17,6 +18,8 @@ from custom_components.thermoworks_cloud.sensor import (
     HumiditySensor,
     TemperatureSensor,
 )
+
+RFX_DEVICE = ThermoworksDevice(serial="RFX123")
 
 
 class TestDeviceNaming(TestCase):
@@ -37,16 +40,16 @@ class TestDeviceNaming(TestCase):
 
         # Act
         temperature = TemperatureSensor(
-            "sensor.temperature", coordinator, "RFX123", temperature_channel
+            "sensor.temperature", coordinator, RFX_DEVICE, temperature_channel
         )
         humidity = HumiditySensor(
-            "sensor.humidity", coordinator, "RFX123", humidity_channel
+            "sensor.humidity", coordinator, RFX_DEVICE, humidity_channel
         )
         threshold = HighAlarmThresholdSensor(
-            "sensor.threshold", coordinator, "RFX123", alarm_channel
+            "sensor.threshold", coordinator, RFX_DEVICE, alarm_channel
         )
         alarm = HighAlarmBinarySensor(
-            "binary_sensor.alarm", coordinator, "RFX123", alarm_channel
+            "binary_sensor.alarm", coordinator, RFX_DEVICE, alarm_channel
         )
 
         # Assert
@@ -69,31 +72,31 @@ class TestDeviceNaming(TestCase):
         missing_label_temperature = TemperatureSensor(
             "sensor.missing_label_temperature",
             coordinator,
-            "RFX123",
+            RFX_DEVICE,
             missing_label_channel,
         )
         empty_label_temperature = TemperatureSensor(
-            "sensor.empty_label_temperature", coordinator, "RFX123", empty_label_channel
+            "sensor.empty_label_temperature", coordinator, RFX_DEVICE, empty_label_channel
         )
         missing_label_threshold = HighAlarmThresholdSensor(
             "sensor.missing_label_threshold",
             coordinator,
-            "RFX123",
+            RFX_DEVICE,
             missing_label_channel,
         )
         empty_label_threshold = HighAlarmThresholdSensor(
-            "sensor.empty_label_threshold", coordinator, "RFX123", empty_label_channel
+            "sensor.empty_label_threshold", coordinator, RFX_DEVICE, empty_label_channel
         )
         missing_label_alarm = HighAlarmBinarySensor(
             "binary_sensor.missing_label_alarm",
             coordinator,
-            "RFX123",
+            RFX_DEVICE,
             missing_label_channel,
         )
         empty_label_alarm = HighAlarmBinarySensor(
             "binary_sensor.empty_label_alarm",
             coordinator,
-            "RFX123",
+            RFX_DEVICE,
             empty_label_channel,
         )
 
@@ -112,7 +115,7 @@ class TestDeviceNaming(TestCase):
     def test_entity_identity_uses_device_id_when_available(self):
         # Setup
         device = ThermoworksDevice(
-            serial="RFX123", device_id="AABBCCDDEEFF", fan=Fan(connected=True)
+            serial="RFX123", device_id="AABBCCDDEEFF"
         )
         channel = ThermoworksChannel(
             number="1", value=100, units="F", status="ok", label="Probe"
@@ -122,9 +125,11 @@ class TestDeviceNaming(TestCase):
         # Act
         battery = BatterySensor("sensor.battery", coordinator, device)
         temperature = TemperatureSensor(
-            "sensor.temperature", coordinator, device.get_identifier(), channel
+            "sensor.temperature", coordinator, device, channel
         )
-        fan = FanStateSensor("sensor.fan", coordinator, device)
+        fan = FanStateSensor(
+            "sensor.fan", coordinator, ThermoworksFan.from_api_fan(Fan(connected=True), device)
+        )
 
         # Assert
         self.assertEqual(
@@ -145,7 +150,7 @@ class TestDeviceNaming(TestCase):
     def test_entity_identity_falls_back_to_serial_when_device_id_is_missing(self):
         # Setup
         device = ThermoworksDevice(
-            serial="RFX123", device_id=None, fan=Fan(connected=True)
+            serial="RFX123", device_id=None
         )
         channel = ThermoworksChannel(
             number="1", value=100, units="F", status="ok", label="Probe"
@@ -155,9 +160,11 @@ class TestDeviceNaming(TestCase):
         # Act
         battery = BatterySensor("sensor.battery", coordinator, device)
         temperature = TemperatureSensor(
-            "sensor.temperature", coordinator, device.get_identifier(), channel
+            "sensor.temperature", coordinator, device, channel
         )
-        fan = FanStateSensor("sensor.fan", coordinator, device)
+        fan = FanStateSensor(
+            "sensor.fan", coordinator, ThermoworksFan.from_api_fan(Fan(connected=True), device)
+        )
 
         # Assert
         self.assertEqual(

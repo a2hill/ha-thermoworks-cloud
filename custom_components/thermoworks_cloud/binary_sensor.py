@@ -10,14 +10,13 @@ from homeassistant.components.binary_sensor import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.device_registry import DeviceInfo, format_mac
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from thermoworks_cloud.models import Alarm
 
 from .const import DOMAIN
 from .coordinator import ThermoworksCoordinator
-from .entity import ChannelView, ThermoworksChannelEntity, ThermoworksDeviceEntity, View
-from .models import ThermoworksChannel, ThermoworksDevice
+from .entity import ChannelView, ThermoworksChannelEntity, ThermoworksFanEntity, View
+from .models import ThermoworksChannel, ThermoworksFan
 
 
 async def async_setup_entry(
@@ -32,17 +31,15 @@ async def async_setup_entry(
 
     new_entities: list[BinarySensorEntity] = []
     for device in coordinator.data.devices.values():
-        identifier = device.get_identifier()
-
-        if FanConnectedSensor.supported(device):
-            new_entities.append(FanConnectedSensor.build(hass, coordinator, device))
-
         for device_channel in device.channels.values():
             for alarm_sensor in (HighAlarmBinarySensor, LowAlarmBinarySensor):
                 if alarm_sensor.supported(device_channel):
                     new_entities.append(
-                        alarm_sensor.build(hass, coordinator, identifier, device_channel)
+                        alarm_sensor.build(hass, coordinator, device, device_channel)
                     )
+
+    for fan in coordinator.data.fans.values():
+        new_entities.append(FanConnectedSensor.build(hass, coordinator, fan))
 
     async_add_entities(new_entities)
 
@@ -54,7 +51,7 @@ class FanConnection:
     connected: bool | None
 
 
-class FanConnectedSensor(ThermoworksDeviceEntity[FanConnection], BinarySensorEntity):
+class FanConnectedSensor(ThermoworksFanEntity[FanConnection], BinarySensorEntity):
     """Whether the fan accessory is connected.
 
     Unlike the fan sensors, this stays available while the fan is disconnected, since
@@ -62,22 +59,16 @@ class FanConnectedSensor(ThermoworksDeviceEntity[FanConnection], BinarySensorEnt
     """
 
     entity_id_format = ENTITY_ID_FORMAT
-    entity_suffix = "fan_connected"
-    unique_id_suffix = "fan-connected"
+    entity_suffix = "connected"
+    unique_id_suffix = "connected"
 
     _attr_device_class = BinarySensorDeviceClass.CONNECTIVITY
     _attr_has_entity_name = True
     _attr_translation_key = "fan_connected"
 
     @classmethod
-    def parse(cls, device: ThermoworksDevice) -> View[FanConnection]:
-        fan = device.fan
-        return View(entity_state=FanConnection(fan.connected) if fan is not None else None)
-
-    @property
-    def device_info(self) -> DeviceInfo:
-        """Attach the entity to the fan's own device, registered by `devices.py`."""
-        return DeviceInfo(identifiers={(DOMAIN, f"{format_mac(self._device_identifier)}-fan")})
+    def parse(cls, fan: ThermoworksFan) -> View[FanConnection]:
+        return View(entity_state=FanConnection(fan.connected))
 
     @property
     def is_on(self) -> bool | None:

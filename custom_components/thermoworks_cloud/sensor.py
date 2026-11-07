@@ -20,14 +20,19 @@ from homeassistant.components.sensor import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import PERCENTAGE, SIGNAL_STRENGTH_DECIBELS_MILLIWATT, UnitOfTemperature, UnitOfTime
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.device_registry import DeviceInfo, format_mac
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from thermoworks_cloud.models import Alarm
 
 from .const import DOMAIN
 from .coordinator import ThermoworksCoordinator
-from .entity import ChannelView, ThermoworksChannelEntity, ThermoworksDeviceEntity, View
-from .models import ThermoworksChannel, ThermoworksDevice
+from .entity import (
+    ChannelView,
+    ThermoworksChannelEntity,
+    ThermoworksDeviceEntity,
+    ThermoworksFanEntity,
+    View,
+)
+from .models import ThermoworksChannel, ThermoworksDevice, ThermoworksFan
 
 _LOGGER: logging.Logger = logging.getLogger(__package__)
 
@@ -74,9 +79,7 @@ async def async_setup_entry(
 
     new_entities: list[SensorEntity] = []
     for device in coordinator.data.devices.values():
-        identifier = device.get_identifier()
-
-        # DEVICE_SENSORS and CHANNEL_SENSORS are at the end of the file, after their classes
+        # The sensor lists are at the end of the file, after their classes
         for device_sensor in DEVICE_SENSORS:
             if not device_sensor.supported(device):
                 _LOGGER.debug("Not creating %s sensor for device %s",
@@ -100,8 +103,13 @@ async def async_setup_entry(
                                   device_channel.display_name())
                     continue
                 new_entities.append(
-                    channel_sensor.build(hass, coordinator, identifier, device_channel)
+                    channel_sensor.build(hass, coordinator, device, device_channel)
                 )
+
+    for fan in coordinator.data.fans.values():
+        new_entities.extend(
+            fan_sensor.build(hass, coordinator, fan) for fan_sensor in FAN_SENSORS
+        )
 
     if len(new_entities) > 0:
         _LOGGER.debug("New entities to create: %d", len(new_entities))
@@ -240,21 +248,20 @@ class TransmitIntervalSensor(DeviceSensor[int]):
         return self._entity_state
 
 
-class FanSensor[R](DeviceSensor[R]):
+class FanSensor[R](ThermoworksFanEntity[R], SensorEntity):
     """Base class for Thermoworks fan accessory sensors.
 
-    Created for any device that reports a fan, but each parses from `connected_fan`, so
-    it's only available while the fan is connected.
+    Created for every fan, but only available while it's connected, since a disconnected
+    fan still reports its last state and set temperature, which aren't current.
     """
 
-    @classmethod
-    def supported(cls, device: ThermoworksDevice) -> bool:
-        return device.fan is not None
+    entity_id_format = ENTITY_ID_FORMAT
 
-    @property
-    def device_info(self) -> DeviceInfo:
-        """Attach the entity to the fan's own device, registered by `devices.py`."""
-        return DeviceInfo(identifiers={(DOMAIN, f"{format_mac(self._device_identifier)}-fan")})
+    _attr_has_entity_name = True
+
+    @classmethod
+    def supported(cls, fan: ThermoworksFan) -> bool:
+        return True
 
 
 @dataclass(frozen=True)
@@ -267,17 +274,18 @@ class FanStatus:
 class FanStateSensor(FanSensor[FanStatus]):
     """What the fan is doing: paused, blowing or pulsing."""
 
-    entity_suffix = "fan_state"
-    unique_id_suffix = "fan-state"
+    entity_suffix = "state"
+    unique_id_suffix = "state"
 
     _attr_device_class = SensorDeviceClass.ENUM
     _attr_options = ["Paused", "Blowing", "Pulsing"]
     _attr_translation_key = "fan_state"
 
     @classmethod
-    def parse(cls, device: ThermoworksDevice) -> View[FanStatus]:
-        fan = device.connected_fan
-        return View(entity_state=FanStatus(fan.state_name) if fan is not None else None)
+    def parse(cls, fan: ThermoworksFan) -> View[FanStatus]:
+        if fan.connected is not True:
+            return View(entity_state=None)
+        return View(entity_state=FanStatus(fan.state_name))
 
     @property
     def native_value(self) -> str | None:
@@ -303,8 +311,8 @@ class FanSetTemperatureView(View[FanSetpoint]):
 class FanSetTemperatureSensor(FanSensor[FanSetpoint]):
     """The temperature the fan is set to hold."""
 
-    entity_suffix = "fan_set_temperature"
-    unique_id_suffix = "fan-set-temperature"
+    entity_suffix = "set_temperature"
+    unique_id_suffix = "set-temperature"
 
     _view: FanSetTemperatureView
 
@@ -312,11 +320,12 @@ class FanSetTemperatureSensor(FanSensor[FanSetpoint]):
     _attr_translation_key = "fan_set_temperature"
 
     @classmethod
-    def parse(cls, device: ThermoworksDevice) -> FanSetTemperatureView:
-        fan = device.connected_fan
-        unit = _ha_unit(device.device_display_units)
+    def parse(cls, fan: ThermoworksFan) -> FanSetTemperatureView:
+        unit = _ha_unit(fan.display_units)
         return FanSetTemperatureView(
-            entity_state=FanSetpoint(fan.set_temp, fan.fan_channel) if fan is not None else None,
+            entity_state=(
+                FanSetpoint(fan.set_temp, fan.fan_channel) if fan.connected is True else None
+            ),
             # A number without a known temperature unit is shown as a plain number
             unit=unit if unit in TEMPERATURE_UNITS else None,
         )
@@ -587,6 +596,8 @@ DEVICE_SENSORS: list[type[DeviceSensor]] = [
     SignalSensor,
     LastSeenSensor,
     TransmitIntervalSensor,
+]
+FAN_SENSORS: list[type[FanSensor]] = [
     FanStateSensor,
     FanSetTemperatureSensor,
 ]

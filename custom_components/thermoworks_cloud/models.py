@@ -18,6 +18,7 @@ from dataclasses import InitVar, dataclass, field
 from datetime import datetime
 from typing import Optional
 
+from homeassistant.helpers.device_registry import format_mac
 from homeassistant.util import dt as dt_util
 from thermoworks_cloud.models import Alarm, ChannelStatus, Device, DeviceChannel, Fan
 
@@ -113,19 +114,9 @@ class ThermoworksDevice:
     battery: Optional[float] = None
     battery_state: Optional[str] = None
     signal_strength: Optional[float] = None
-    # Raw, because the fan connected sensor shows a disconnected fan as reported
-    fan: Optional[Fan] = None
     last_seen: Optional[datetime] = None
     transmit_interval_in_seconds: Optional[int] = None
     channels: Mapping[str, ThermoworksChannel] = field(default_factory=dict)
-    # The fan only while it's connected. A disconnected fan still reports its last state
-    # and set temperature, which shouldn't be shown as current.
-    connected_fan: Optional[Fan] = field(init=False, default=None)
-
-    def __post_init__(self) -> None:
-        """Derive the connected fan from the raw fan."""
-        connected = self.fan is not None and self.fan.connected is True
-        object.__setattr__(self, "connected_fan", self.fan if connected else None)
 
     @classmethod
     def from_api_device(
@@ -146,7 +137,6 @@ class ThermoworksDevice:
             battery_state=device.battery_state,
             # The library's Wi-Fi/gateway RSSI abstraction, so it works for every device type
             signal_strength=device.signal_strength,
-            fan=device.fan,
             last_seen=_as_utc(device.last_seen),
             transmit_interval_in_seconds=device.transmit_interval_in_seconds,
             channels={channel.number: channel for channel in channels},
@@ -156,7 +146,49 @@ class ThermoworksDevice:
         """Return the device identifier, preferring device_id but falling back to serial."""
         return self.device_id if self.device_id else self.serial
 
+    @property
+    def registry_identifier(self) -> str:
+        """Return the identifier this device is registered under in Home Assistant."""
+        return format_mac(self.get_identifier())
+
     def display_name(self) -> str:
         """Return the display name of the device."""
         # {user given name} ({rfx gateway, rfx meat, node, etc.} - {usually serial number})
         return f"{self.label or "unnamed device"} ({self.device_name or "unknown device"} - {self.get_identifier()})"
+
+
+@dataclass(frozen=True)
+class ThermoworksFan:
+    """A fan accessory, such as a Billows, connected to a gateway.
+
+    The API reports the fan as a field on its gateway, but it's its own device, so it's
+    parsed into one. Its entities then read from it and attach to it like any other device.
+    """
+
+    # Derived from the gateway's, since the API gives the fan no identifier of its own
+    registry_identifier: str
+    # The gateway it's connected through
+    gateway_registry_identifier: str
+    name: str
+    # The gateway's display units, which the set temperature is in
+    display_units: Optional[str] = None
+    # Shown as reported, None when the fan doesn't say
+    connected: Optional[bool] = None
+    state_name: Optional[str] = None
+    set_temp: Optional[int] = None
+    fan_channel: Optional[str] = None
+
+    @classmethod
+    def from_api_fan(cls, fan: Fan, gateway: ThermoworksDevice) -> "ThermoworksFan":
+        """Parse a fan from its gateway's API data."""
+        return cls(
+            registry_identifier=f"{gateway.registry_identifier}-fan",
+            gateway_registry_identifier=gateway.registry_identifier,
+            name=f"{gateway.label or gateway.display_name()} Fan",
+            display_units=gateway.device_display_units,
+            connected=fan.connected,
+            state_name=fan.state_name,
+            set_temp=fan.set_temp,
+            fan_channel=fan.fan_channel,
+        )
+
