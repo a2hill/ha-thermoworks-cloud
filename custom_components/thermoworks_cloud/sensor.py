@@ -91,7 +91,7 @@ async def async_setup_entry(
         # SENSORS is at the end of the file, after the classes it lists
         for sensor in SENSORS:
             for source in sensor.sources(device):
-                entity = sensor.build(hass, coordinator, device, source)
+                entity = sensor.build(hass, coordinator, source)
                 if entity is None:
                     _LOGGER.debug("Not creating %s sensor for device %s",
                                   sensor.suffix, device.display_name())

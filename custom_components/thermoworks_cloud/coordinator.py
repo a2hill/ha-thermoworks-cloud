@@ -39,7 +39,7 @@ _LOGGER: logging.Logger = logging.getLogger(__package__)
 class ThermoworksData:
     """Devices parsed from the latest API response."""
 
-    # Keyed by device identifier (see ThermoworksDevice.get_identifier), so entities can
+    # Keyed by device identifier (see ThermoworksDevice.device_identifier), so entities can
     # look up their device directly. Each device holds its own channels and fan.
     devices: dict[str, ThermoworksDevice] = field(default_factory=dict)
 
@@ -190,7 +190,7 @@ class ThermoworksCoordinator(DataUpdateCoordinator[ThermoworksData]):
 
                 device = _parse_device(api_device, api_channels)
                 if device is not None:
-                    data.devices[device.get_identifier()] = device
+                    data.devices[device.device_identifier] = device
                     _LOGGER.debug("Found %d channels for device %s",
                                   len(device.channels), device.display_name())
 
@@ -224,7 +224,7 @@ class ThermoworksCoordinator(DataUpdateCoordinator[ThermoworksData]):
                 api_device, api_device.channels or []
             )
             if device is not None:
-                data.devices[device.get_identifier()] = device
+                data.devices[device.device_identifier] = device
 
         _LOGGER.debug("Update completed: %d devices with data retrieved", len(data.devices))
         return data

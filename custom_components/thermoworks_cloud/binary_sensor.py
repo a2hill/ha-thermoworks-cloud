@@ -33,7 +33,7 @@ async def async_setup_entry(
         # BINARY_SENSORS is at the end of the file, after the classes it lists
         for binary_sensor in BINARY_SENSORS:
             for source in binary_sensor.sources(device):
-                entity = binary_sensor.build(hass, coordinator, device, source)
+                entity = binary_sensor.build(hass, coordinator, source)
                 if entity is not None:
                     new_entities.append(entity)
 

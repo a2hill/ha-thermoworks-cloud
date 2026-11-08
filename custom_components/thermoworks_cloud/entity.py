@@ -21,8 +21,9 @@ Every entity follows the same rules:
   the last one is kept for the description.
 - A value Home Assistant should show as unknown is part of the entity state, for entities
   where that happens (e.g. a fan that doesn't report whether it's connected).
-- Identity lives here. Every source carries the `registry_identifier` of the device its
-  entities attach to (the `Source` protocol), registered in `__init__.py`. The entity id and
+- Identity lives here. Every source carries the `device_identifier` of the device it's on and
+  the `registry_identifier` of the device its entities attach to (the `Source` protocol),
+  registered in `__init__.py`. Entities are built from the source alone. The entity id and
   unique id are both built in `build` and `__init__` from the same parts: the device, any
   parts each base class adds (like the channel number), and the class's suffix. Entities
   never build identifiers themselves.
@@ -48,7 +49,12 @@ from .models import ThermoworksChannel, ThermoworksDevice, ThermoworksFan
 
 
 class Source(Protocol):
-    """A parsed type that has entities: it knows which registered device they attach to."""
+    """A parsed type that has entities: it knows its device and the device they attach to."""
+
+    @property
+    def device_identifier(self) -> str:
+        """Return the identifier of the device it's on, the key in `ThermoworksData.devices`."""
+        ...
 
     @property
     def registry_identifier(self) -> str:
@@ -84,15 +90,13 @@ class ThermoworksEntity[S: Source, R](CoordinatorEntity[ThermoworksCoordinator])
 
     _view: View[R]
 
-    def __init__(
-        self, coordinator: ThermoworksCoordinator, device: ThermoworksDevice, source: S
-    ) -> None:
-        """Initialise the entity from a device and the source on it that has this entity.
+    def __init__(self, coordinator: ThermoworksCoordinator, source: S) -> None:
+        """Initialise the entity from a source that has this entity.
 
         Create entities with `build`, which only creates one where it applies.
         """
         super().__init__(coordinator)
-        self._device_identifier = device.get_identifier()
+        self._device_identifier = source.device_identifier
         self._registry_identifier = source.registry_identifier
         self._attr_unique_id = "-".join(
             [
@@ -110,16 +114,12 @@ class ThermoworksEntity[S: Source, R](CoordinatorEntity[ThermoworksCoordinator])
 
     @classmethod
     def build(
-        cls,
-        hass: HomeAssistant,
-        coordinator: ThermoworksCoordinator,
-        device: ThermoworksDevice,
-        source: S,
+        cls, hass: HomeAssistant, coordinator: ThermoworksCoordinator, source: S
     ) -> Self | None:
-        """Create the entity for a source on the device, or None if it doesn't apply."""
+        """Create the entity for a source, or None if it doesn't apply."""
         if cls.parse(source) is None:
             return None
-        entity = cls(coordinator, device, source)
+        entity = cls(coordinator, source)
         # The device identifier rather than the registry identifier, to keep the entity ids
         # new entities have always been given
         object_id = "_".join(
@@ -203,15 +203,10 @@ class ThermoworksChannelEntity[R](ThermoworksEntity[ThermoworksChannel, R]):
 
     _view: ChannelView[R]
 
-    def __init__(
-        self,
-        coordinator: ThermoworksCoordinator,
-        device: ThermoworksDevice,
-        source: ThermoworksChannel,
-    ) -> None:
+    def __init__(self, coordinator: ThermoworksCoordinator, source: ThermoworksChannel) -> None:
         """Initialise the entity, remembering which channel it reads."""
         self._channel_number = source.number
-        super().__init__(coordinator, device, source)
+        super().__init__(coordinator, source)
 
     @classmethod
     def sources(cls, device: ThermoworksDevice) -> Iterable[ThermoworksChannel]:
