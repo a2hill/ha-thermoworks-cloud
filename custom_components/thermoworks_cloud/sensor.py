@@ -1,6 +1,6 @@
 """Sensors representing a Thermoworks thermometer.
 
-Each sensor's `parse` method builds a view of everything it shows from a device or channel,
+Each sensor's `parse` method builds a view of everything it shows from a device, channel or fan,
 and the base classes in `entity.py` handle identity, updates and availability the same way
 for all of them.
 """
@@ -21,7 +21,6 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import PERCENTAGE, SIGNAL_STRENGTH_DECIBELS_MILLIWATT, UnitOfTemperature, UnitOfTime
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from thermoworks_cloud.models import Alarm
 
 from .const import DOMAIN
 from .coordinator import ThermoworksCoordinator
@@ -32,23 +31,24 @@ from .entity import (
     ThermoworksFanEntity,
     View,
 )
-from .models import ThermoworksChannel, ThermoworksDevice, ThermoworksFan
+from .models import (
+    FanActivity,
+    ThermoworksAlarm,
+    ThermoworksChannel,
+    ThermoworksDevice,
+    ThermoworksFan,
+    Unit,
+)
 
 _LOGGER: logging.Logger = logging.getLogger(__package__)
 
-# Units the API reports, mapped to Home Assistant units. All unit conversion goes
-# through this map; unknown units map to None.
-API_UNITS: dict[str, str] = {
-    "F": UnitOfTemperature.FAHRENHEIT,
-    "C": UnitOfTemperature.CELSIUS,
-    "H": PERCENTAGE,
+# Home Assistant's unit for each unit the integration handles
+HA_UNITS: dict[Unit, str] = {
+    Unit.FAHRENHEIT: UnitOfTemperature.FAHRENHEIT,
+    Unit.CELSIUS: UnitOfTemperature.CELSIUS,
+    Unit.HUMIDITY: PERCENTAGE,
 }
-TEMPERATURE_UNITS = (UnitOfTemperature.FAHRENHEIT, UnitOfTemperature.CELSIUS)
-
-
-def _ha_unit(api_unit: str | None) -> str | None:
-    """Return the Home Assistant unit for an API unit, or None if it isn't known."""
-    return API_UNITS.get(api_unit)
+TEMPERATURE_UNITS = (Unit.FAHRENHEIT, Unit.CELSIUS)
 
 
 def _channel_attributes(channel: ThermoworksChannel) -> dict[str, Any]:
@@ -79,33 +79,24 @@ async def async_setup_entry(
 
     new_entities: list[SensorEntity] = []
     for device in coordinator.data.devices.values():
-        # The sensor lists are at the end of the file, after their classes
-        for device_sensor in (*DEVICE_SENSORS, *FAN_SENSORS):
-            entity = device_sensor.build(hass, coordinator, device)
-            if entity is None:
-                _LOGGER.debug("Not creating %s sensor for device %s",
-                              device_sensor.suffix, device.display_name())
-                continue
-            new_entities.append(entity)
-
         for device_channel in device.channels.values():
-            if _ha_unit(device_channel.units) is None:
+            if device_channel.units is None:
                 _LOGGER.warning(
-                    "Unsupported sensor unit '%s' for device %s channel %s - skipping",
-                    device_channel.units,
+                    "Device %s channel %s reports a unit this integration doesn't handle, so "
+                    "it has no measurement sensor. The unit is in the debug log.",
                     device.display_name(),
-                    device_channel.display_name()
+                    device_channel.display_name(),
                 )
 
-            for channel_sensor in CHANNEL_SENSORS:
-                entity = channel_sensor.build(hass, coordinator, device, device_channel)
+        # SENSORS is at the end of the file, after the classes it lists
+        for sensor in SENSORS:
+            for source in sensor.sources(device):
+                entity = sensor.build(hass, coordinator, device, source)
                 if entity is None:
-                    _LOGGER.debug("Not creating %s sensor for device %s channel %s",
-                                  channel_sensor.suffix, device.display_name(),
-                                  device_channel.display_name())
+                    _LOGGER.debug("Not creating %s sensor for device %s",
+                                  sensor.suffix, device.display_name())
                     continue
                 new_entities.append(entity)
-
 
     if len(new_entities) > 0:
         _LOGGER.debug("New entities to create: %d", len(new_entities))
@@ -260,7 +251,7 @@ class FanSensor[R](ThermoworksFanEntity[R], SensorEntity):
 class FanStatus:
     """What a connected fan is doing. None if it doesn't say, shown as unknown."""
 
-    state_name: str | None
+    activity: FanActivity | None
 
 
 class FanStateSensor(FanSensor[FanStatus]):
@@ -269,19 +260,20 @@ class FanStateSensor(FanSensor[FanStatus]):
     suffix = "state"
 
     _attr_device_class = SensorDeviceClass.ENUM
-    _attr_options = ["Paused", "Blowing", "Pulsing"]
+    _attr_options = [activity.value for activity in FanActivity]
     _attr_translation_key = "fan_state"
 
     @classmethod
     def parse(cls, fan: ThermoworksFan) -> View[FanStatus]:
         if fan.connected is not True:
             return View(entity_state=None)
-        return View(entity_state=FanStatus(fan.state_name))
+        return View(entity_state=FanStatus(fan.activity))
 
     @property
     def native_value(self) -> str | None:
         """Return the fan state name."""
-        return self._entity_state.state_name
+        activity = self._entity_state.activity
+        return activity.value if activity is not None else None
 
 
 @dataclass(frozen=True)
@@ -311,13 +303,13 @@ class FanSetTemperatureSensor(FanSensor[FanSetpoint]):
 
     @classmethod
     def parse(cls, fan: ThermoworksFan) -> FanSetTemperatureView:
-        unit = _ha_unit(fan.display_units)
+        unit = fan.display_units
         return FanSetTemperatureView(
             entity_state=(
                 FanSetpoint(fan.set_temp, fan.fan_channel) if fan.connected is True else None
             ),
             # A number without a known temperature unit is shown as a plain number
-            unit=unit if unit in TEMPERATURE_UNITS else None,
+            unit=HA_UNITS[unit] if unit in TEMPERATURE_UNITS else None,
         )
 
     @property
@@ -393,7 +385,7 @@ class MeasurementSensor(ChannelSensor[Measurement]):
     """
 
     # The reading's unit. The sensor only applies to channels in one of these.
-    supported_units: tuple[str, ...]
+    supported_units: tuple[Unit, ...]
 
     # Created without the suffix in their unique ids
     unique_id_has_suffix = False
@@ -405,8 +397,7 @@ class MeasurementSensor(ChannelSensor[Measurement]):
 
     @classmethod
     def parse(cls, channel: ThermoworksChannel) -> MeasurementView | None:
-        unit = _ha_unit(channel.units)
-        if unit not in cls.supported_units:
+        if channel.units not in cls.supported_units:
             return None
         measurement = None
         if channel.reading is not None:
@@ -418,7 +409,7 @@ class MeasurementSensor(ChannelSensor[Measurement]):
         return MeasurementView(
             entity_state=measurement,
             name=channel.display_name(),
-            unit=unit,
+            unit=HA_UNITS[channel.units],
         )
 
     @property
@@ -456,7 +447,7 @@ class HumiditySensor(MeasurementSensor):
     """Humidity reading from a channel's sensor."""
 
     suffix = "humidity"
-    supported_units = (PERCENTAGE,)
+    supported_units = (Unit.HUMIDITY,)
 
     # https://developers.home-assistant.io/docs/core/entity/sensor/#available-device-classes
     _attr_device_class = SensorDeviceClass.HUMIDITY
@@ -496,7 +487,7 @@ class AlarmThresholdSensor(ChannelSensor[AlarmThreshold]):
 
     @classmethod
     @abstractmethod
-    def _alarm(cls, channel: ThermoworksChannel) -> Alarm | None:
+    def _alarm(cls, channel: ThermoworksChannel) -> ThermoworksAlarm | None:
         """Return the alarm this sensor shows."""
 
     @classmethod
@@ -507,13 +498,13 @@ class AlarmThresholdSensor(ChannelSensor[AlarmThreshold]):
         return AlarmThresholdView(
             entity_state=AlarmThreshold(alarm.value, alarm.enabled, alarm.alarming),
             name=channel.display_name(),
-            unit=_ha_unit(alarm.units),
+            unit=HA_UNITS.get(alarm.units) if alarm.units is not None else None,
         )
 
     @property
     def device_class(self) -> SensorDeviceClass | None:
         """Return the alarm threshold device class."""
-        if self._view.unit in TEMPERATURE_UNITS:
+        if self._view.unit in (UnitOfTemperature.FAHRENHEIT, UnitOfTemperature.CELSIUS):
             return SensorDeviceClass.TEMPERATURE
         if self._view.unit == PERCENTAGE:
             return SensorDeviceClass.HUMIDITY
@@ -547,7 +538,7 @@ class HighAlarmThresholdSensor(AlarmThresholdSensor):
     _attr_translation_key = "high_alarm_threshold"
 
     @classmethod
-    def _alarm(cls, channel: ThermoworksChannel) -> Alarm | None:
+    def _alarm(cls, channel: ThermoworksChannel) -> ThermoworksAlarm | None:
         return channel.alarm_high
 
     @property
@@ -564,7 +555,7 @@ class LowAlarmThresholdSensor(AlarmThresholdSensor):
     _attr_translation_key = "low_alarm_threshold"
 
     @classmethod
-    def _alarm(cls, channel: ThermoworksChannel) -> Alarm | None:
+    def _alarm(cls, channel: ThermoworksChannel) -> ThermoworksAlarm | None:
         return channel.alarm_low
 
     @property
@@ -573,17 +564,14 @@ class LowAlarmThresholdSensor(AlarmThresholdSensor):
         return f"{self._view.name} Low Alarm Threshold"
 
 
-DEVICE_SENSORS: list[type[DeviceSensor]] = [
+# Every sensor type. Each is created for the sources on a device that have it.
+SENSORS: list[type[DeviceSensor | FanSensor | ChannelSensor]] = [
     BatterySensor,
     SignalSensor,
     LastSeenSensor,
     TransmitIntervalSensor,
-]
-FAN_SENSORS: list[type[FanSensor]] = [
     FanStateSensor,
     FanSetTemperatureSensor,
-]
-CHANNEL_SENSORS: list[type[ChannelSensor]] = [
     HumiditySensor,
     TemperatureSensor,
     HighAlarmThresholdSensor,

@@ -2,10 +2,11 @@
 
 Every entity follows the same rules:
 
-- On each coordinator update, the entity finds its source (a device, or one of its channels
-  or its fan accessory) and passes it to its own `parse` method. `parse` returns a view: a small
-  frozen dataclass holding everything the entity shows. Entity properties read only from the
-  view, never from the source, so each entity's dependencies are written down in one place.
+- Each entity has a source: a parsed device, one of its channels, or its fan accessory. On each
+  coordinator update it looks up its device and picks its source from it, then passes the
+  source to its own `parse` method. `parse` returns a view: a small frozen dataclass holding
+  everything the entity shows. Entity properties read only from the view, never from the
+  source, so each entity's dependencies are written down in one place.
 - `parse` returns None when the source doesn't have this entity at all (a device with no
   battery, a channel with no high alarm). Entities are only created where `parse` returns a
   view, and an existing entity whose source stops having it becomes unavailable.
@@ -15,15 +16,16 @@ Every entity follows the same rules:
   what the entity is (name, unit, ...) and is always there, because Home Assistant shows
   those even while an entity is unavailable.
 - An entity is unavailable when the coordinator update failed, its source is gone from the
-  API, `parse` returned None, or its view has no entity state. It recovers on the next update that has one. A
-  stale entity state is never shown as current. Without a new view, the last one is kept
-  for the description.
+  API, `parse` returned None, or its view has no entity state. It recovers on the next
+  update that has one. A stale entity state is never shown as current. Without a new view,
+  the last one is kept for the description.
 - A value Home Assistant should show as unknown is part of the entity state, for entities
   where that happens (e.g. a fan that doesn't report whether it's connected).
-- Identity lives here. Each entity attaches to the device registered under its source's
-  `registry_identifier` (see `devices.py`), and builds its unique id from it. Entities never
-  build identifiers themselves. Each class only declares a suffix, used for both the entity
-  id and unique id, so the two can't diverge.
+- Identity lives here. Every source carries the `registry_identifier` of the device its
+  entities attach to (the `Source` protocol), registered in `__init__.py`. The entity id and
+  unique id are both built in `build` and `__init__` from the same parts: the device, any
+  parts each base class adds (like the channel number), and the class's suffix. Entities
+  never build identifiers themselves.
 
 State is written on every update so availability changes always reach Home Assistant.
 Nothing here raises: an exception from a listener would skip that entity's state write and
@@ -31,8 +33,9 @@ leave it showing its last value as available.
 """
 
 from abc import abstractmethod
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import ClassVar, Self
+from typing import ClassVar, Protocol, Self
 
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
@@ -42,6 +45,15 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from .const import DOMAIN
 from .coordinator import ThermoworksCoordinator, ThermoworksData
 from .models import ThermoworksChannel, ThermoworksDevice, ThermoworksFan
+
+
+class Source(Protocol):
+    """A parsed type that has entities: it knows which registered device they attach to."""
+
+    @property
+    def registry_identifier(self) -> str:
+        """Return the identifier of the Home Assistant device its entities attach to."""
+        ...
 
 
 @dataclass(frozen=True)
@@ -59,7 +71,7 @@ class ChannelView[R](View[R]):
     name: str
 
 
-class ThermoworksEntity[S, R](CoordinatorEntity[ThermoworksCoordinator]):
+class ThermoworksEntity[S: Source, R](CoordinatorEntity[ThermoworksCoordinator]):
     """Parses a view from its source on every update and shows only what's in it."""
 
     # Set by each platform's base class, e.g. "sensor.{}"
@@ -73,24 +85,19 @@ class ThermoworksEntity[S, R](CoordinatorEntity[ThermoworksCoordinator]):
     _view: View[R]
 
     def __init__(
-        self,
-        entity_id: str,
-        coordinator: ThermoworksCoordinator,
-        registry_identifier: str,
-        source: S,
+        self, coordinator: ThermoworksCoordinator, device: ThermoworksDevice, source: S
     ) -> None:
-        """Initialise the entity from the source it was discovered on.
+        """Initialise the entity from a device and the source on it that has this entity.
 
-        `registry_identifier` is the source's, taken from the parsed model. Only create an
-        entity for a source that has it (see `build`).
+        Create entities with `build`, which only creates one where it applies.
         """
         super().__init__(coordinator)
-        self.entity_id = entity_id
-        self._registry_identifier = registry_identifier
+        self._device_identifier = device.get_identifier()
+        self._registry_identifier = source.registry_identifier
         self._attr_unique_id = "-".join(
             [
                 DOMAIN,
-                registry_identifier,
+                self._registry_identifier,
                 *self._unique_id_parts(),
                 *([self.suffix] if self.unique_id_has_suffix else []),
             ]
@@ -102,21 +109,50 @@ class ThermoworksEntity[S, R](CoordinatorEntity[ThermoworksCoordinator]):
         self._has_new_view = True
 
     @classmethod
+    def build(
+        cls,
+        hass: HomeAssistant,
+        coordinator: ThermoworksCoordinator,
+        device: ThermoworksDevice,
+        source: S,
+    ) -> Self | None:
+        """Create the entity for a source on the device, or None if it doesn't apply."""
+        if cls.parse(source) is None:
+            return None
+        entity = cls(coordinator, device, source)
+        # The device identifier rather than the registry identifier, to keep the entity ids
+        # new entities have always been given
+        object_id = "_".join(
+            [entity._device_identifier, *entity._entity_id_parts(), cls.suffix]
+        )
+        entity.entity_id = async_generate_entity_id(cls.entity_id_format, object_id, hass=hass)
+        return entity
+
+    @classmethod
+    @abstractmethod
+    def sources(cls, device: ThermoworksDevice) -> Iterable[S]:
+        """Return the sources on the device that could have this entity."""
+
+    @abstractmethod
+    def _select(self, device: ThermoworksDevice) -> S | None:
+        """Return this entity's source from its device, or None if it's gone."""
+
+    @classmethod
     @abstractmethod
     def parse(cls, source: S) -> View[R] | None:
         """Return everything this entity shows, or None if the source doesn't have it."""
 
-    def _unique_id_parts(self) -> list[str]:
-        """Return any parts of the unique id between the registry identifier and suffix."""
+    def _entity_id_parts(self) -> list[str]:
+        """Return parts of the entity id between the device identifier and the suffix."""
         return []
 
-    @abstractmethod
-    def _find_source(self, data: ThermoworksData) -> S | None:
-        """Return this entity's source from the latest data, or None if it's gone."""
+    def _unique_id_parts(self) -> list[str]:
+        """Return parts of the unique id between the registry identifier and the suffix."""
+        return []
 
     @property
     def device_info(self) -> DeviceInfo:
-        """Attach the entity to its source's device, which `devices.py` registers."""
+        """Attach the entity to its source's device, which `__init__.py` registers."""
         return DeviceInfo(identifiers={(DOMAIN, self._registry_identifier)})
 
     @property
@@ -141,7 +177,9 @@ class ThermoworksEntity[S, R](CoordinatorEntity[ThermoworksCoordinator]):
     @callback
     def _handle_coordinator_update(self) -> None:
         """Parse a new view from the latest data and write state either way."""
-        source = self._find_source(self.coordinator.data)
+        data: ThermoworksData = self.coordinator.data
+        device = data.devices.get(self._device_identifier)
+        source = self._select(device) if device is not None else None
         view = self.parse(source) if source is not None else None
         self._has_new_view = view is not None
         if view is not None:
@@ -150,34 +188,14 @@ class ThermoworksEntity[S, R](CoordinatorEntity[ThermoworksCoordinator]):
 
 
 class ThermoworksDeviceEntity[R](ThermoworksEntity[ThermoworksDevice, R]):
-    """An entity whose value comes from one device."""
-
-    def __init__(
-        self,
-        entity_id: str,
-        coordinator: ThermoworksCoordinator,
-        device: ThermoworksDevice,
-    ) -> None:
-        """Initialise the entity from the device it was discovered on."""
-        self._device_identifier = device.get_identifier()
-        super().__init__(entity_id, coordinator, device.registry_identifier, device)
+    """An entity whose value comes from the device itself."""
 
     @classmethod
-    def build(
-        cls, hass: HomeAssistant, coordinator: ThermoworksCoordinator, device: ThermoworksDevice
-    ) -> Self | None:
-        """Create the entity, with an entity id generated from its identity, if it applies."""
-        if cls.parse(device) is None:
-            return None
-        object_id = f"{device.get_identifier()}_{cls.suffix}"
-        return cls(
-            async_generate_entity_id(cls.entity_id_format, object_id, hass=hass),
-            coordinator,
-            device,
-        )
+    def sources(cls, device: ThermoworksDevice) -> Iterable[ThermoworksDevice]:
+        return [device]
 
-    def _find_source(self, data: ThermoworksData) -> ThermoworksDevice | None:
-        return data.devices.get(self._device_identifier)
+    def _select(self, device: ThermoworksDevice) -> ThermoworksDevice | None:
+        return device
 
 
 class ThermoworksChannelEntity[R](ThermoworksEntity[ThermoworksChannel, R]):
@@ -187,71 +205,38 @@ class ThermoworksChannelEntity[R](ThermoworksEntity[ThermoworksChannel, R]):
 
     def __init__(
         self,
-        entity_id: str,
         coordinator: ThermoworksCoordinator,
         device: ThermoworksDevice,
-        device_channel: ThermoworksChannel,
+        source: ThermoworksChannel,
     ) -> None:
-        """Initialise the entity from the channel it was discovered on, and its device."""
-        self._device_identifier = device.get_identifier()
-        self._channel_number = device_channel.number
-        super().__init__(entity_id, coordinator, device.registry_identifier, device_channel)
+        """Initialise the entity, remembering which channel it reads."""
+        self._channel_number = source.number
+        super().__init__(coordinator, device, source)
 
     @classmethod
-    def build(
-        cls,
-        hass: HomeAssistant,
-        coordinator: ThermoworksCoordinator,
-        device: ThermoworksDevice,
-        device_channel: ThermoworksChannel,
-    ) -> Self | None:
-        """Create the entity, with an entity id generated from its identity, if it applies."""
-        if cls.parse(device_channel) is None:
-            return None
-        object_id = f"{device.get_identifier()}_ch_{device_channel.number}_{cls.suffix}"
-        return cls(
-            async_generate_entity_id(cls.entity_id_format, object_id, hass=hass),
-            coordinator,
-            device,
-            device_channel,
-        )
+    def sources(cls, device: ThermoworksDevice) -> Iterable[ThermoworksChannel]:
+        return device.channels.values()
+
+    def _select(self, device: ThermoworksDevice) -> ThermoworksChannel | None:
+        return device.channels.get(self._channel_number)
+
+    def _entity_id_parts(self) -> list[str]:
+        return ["ch", self._channel_number]
 
     def _unique_id_parts(self) -> list[str]:
         return [self._channel_number]
-
-    def _find_source(self, data: ThermoworksData) -> ThermoworksChannel | None:
-        device = data.devices.get(self._device_identifier)
-        return device.channels.get(self._channel_number) if device else None
 
 
 class ThermoworksFanEntity[R](ThermoworksEntity[ThermoworksFan, R]):
     """An entity whose value comes from a gateway's fan accessory."""
 
-    def __init__(
-        self,
-        entity_id: str,
-        coordinator: ThermoworksCoordinator,
-        device: ThermoworksDevice,
-    ) -> None:
-        """Initialise the entity from the gateway it was discovered on, which has a fan."""
-        assert device.fan is not None
-        self._device_identifier = device.get_identifier()
-        super().__init__(entity_id, coordinator, device.fan.registry_identifier, device.fan)
-
     @classmethod
-    def build(
-        cls, hass: HomeAssistant, coordinator: ThermoworksCoordinator, device: ThermoworksDevice
-    ) -> Self | None:
-        """Create the entity, with an entity id generated from its identity, if it applies."""
-        if device.fan is None or cls.parse(device.fan) is None:
-            return None
-        object_id = f"{device.get_identifier()}_fan_{cls.suffix}"
-        return cls(
-            async_generate_entity_id(cls.entity_id_format, object_id, hass=hass),
-            coordinator,
-            device,
-        )
+    def sources(cls, device: ThermoworksDevice) -> Iterable[ThermoworksFan]:
+        return [device.fan] if device.fan is not None else []
 
-    def _find_source(self, data: ThermoworksData) -> ThermoworksFan | None:
-        device = data.devices.get(self._device_identifier)
-        return device.fan if device else None
+    def _select(self, device: ThermoworksDevice) -> ThermoworksFan | None:
+        return device.fan
+
+    def _entity_id_parts(self) -> list[str]:
+        # The fan's registry identifier already ends in "-fan", so the unique id needs no part
+        return ["fan"]

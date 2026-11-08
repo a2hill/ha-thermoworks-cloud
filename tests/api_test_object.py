@@ -168,3 +168,31 @@ GET_DEVICES_FAN_NO_STATE_RESPONSE["devices"][0]["fan"]["state"] = None
 # A fan that doesn't say whether it's connected
 GET_DEVICES_FAN_NO_CONNECTION_RESPONSE = deepcopy(GET_DEVICES_FAN_RESPONSE)
 GET_DEVICES_FAN_NO_CONNECTION_RESPONSE["devices"][0]["fan"]["connected"] = None
+# Channel labels in different cases, a humidity channel, and missing or empty labels
+GET_DEVICES_NAMING_RESPONSE = deepcopy(GET_DEVICES_RESPONSE)
+_channel = GET_DEVICES_NAMING_RESPONSE["devices"][0]["channels"][0]
+GET_DEVICES_NAMING_RESPONSE["devices"][0]["channels"] = [
+    {**_channel, "number": 1, "id": "1", "label": "PORK Shoulder"},
+    {**_channel, "number": 2, "id": "2", "label": "dry box", "units": "H", "value": 50},
+    {**_channel, "number": 3, "id": "3", "label": None},
+    {**_channel, "number": 4, "id": "4", "label": ""},
+]
+# A device whose id isn't its serial
+GET_DEVICES_DISTINCT_DEVICE_ID_RESPONSE = deepcopy(GET_DEVICES_FAN_RESPONSE)
+GET_DEVICES_DISTINCT_DEVICE_ID_RESPONSE["devices"][0]["id"] = "AABBCCDDEEFF"
+# A device with no id, identified by its serial
+GET_DEVICES_NO_DEVICE_ID_RESPONSE = deepcopy(GET_DEVICES_FAN_RESPONSE)
+GET_DEVICES_NO_DEVICE_ID_RESPONSE["devices"][0]["id"] = None
+# Alarms with units, one going off
+GET_DEVICES_ALARMS_RESPONSE = deepcopy(GET_DEVICES_RESPONSE)
+GET_DEVICES_ALARMS_RESPONSE["devices"][0]["channels"][0].update({
+    "alarmHigh": {"enabled": True, "value": 20, "alarming": False, "units": "F"},
+    "alarmLow": {"enabled": True, "value": -12, "alarming": True, "units": "F"},
+})
+# A disabled alarm still reports alarming
+GET_DEVICES_DISABLED_ALARM_RESPONSE = deepcopy(GET_DEVICES_RESPONSE)
+GET_DEVICES_DISABLED_ALARM_RESPONSE["devices"][0]["channels"][0]["alarmHigh"] = {
+    "enabled": False, "value": 20, "alarming": True, "units": "F",
+}
+GET_DEVICES_FAN_DISCONNECTED_RESPONSE = deepcopy(GET_DEVICES_FAN_RESPONSE)
+GET_DEVICES_FAN_DISCONNECTED_RESPONSE["devices"][0]["fan"]["connected"] = False

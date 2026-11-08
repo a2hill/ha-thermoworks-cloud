@@ -7,16 +7,17 @@ from dataclasses import dataclass
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import DeviceEntry
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .const import DOMAIN
 from .coordinator import ThermoworksCoordinator
-from .devices import async_register_devices
 
 # The list of platforms provided by this integration
 PLATFORMS: list[Platform] = [Platform.BINARY_SENSOR, Platform.NUMBER, Platform.SENSOR]
+
+MANUFACTURER = "ThermoWorks"
 
 
 @dataclass
@@ -40,11 +41,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await coordinator.async_config_entry_first_refresh()
 
     # Register devices now, so they exist with their details before entities attach to
-    # them, then again after every refresh to keep the details current (see devices.py)
-    async_register_devices(hass, entry, coordinator)
+    # them, then again after every refresh to keep the details current
+    _async_register_devices(hass, entry, coordinator)
     entry.async_on_unload(
         coordinator.async_add_listener(
-            lambda: async_register_devices(hass, entry, coordinator)
+            lambda: _async_register_devices(hass, entry, coordinator)
         )
     )
 
@@ -63,6 +64,49 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # Return true to denote a successful setup.
     return True
+
+
+@callback
+def _async_register_devices(
+    hass: HomeAssistant, entry: ConfigEntry, coordinator: ThermoworksCoordinator
+) -> None:
+    """Register each ThermoWorks device, and each fan accessory, ahead of time.
+
+    This is done here rather than relying on registration through entities' `device_info`
+    property so that:
+    - Device details (name, model, firmware) are defined once regardless of entity
+    - Details stay current, as this runs after every successful fetch
+
+    Each device is registered under its parsed model's `registry_identifier`, and entities
+    attach by that same identifier (see `entity.py`), so neither side builds identifiers
+    itself. A name the user sets in Home Assistant is stored separately (`name_by_user`), so
+    updating `name` here never overwrites it.
+    """
+    # A failed refresh keeps the previous data, which was already registered
+    if not coordinator.last_update_success:
+        return
+
+    registry = dr.async_get(hass)
+    # async_get_or_create creates a device the first time, then only writes when a detail changed
+    for device in coordinator.data.devices.values():
+        registry.async_get_or_create(
+            config_entry_id=entry.entry_id,
+            identifiers={(DOMAIN, device.registry_identifier)},
+            name=device.label,
+            manufacturer=MANUFACTURER,
+            model=device.device_name,
+            sw_version=device.firmware,
+            serial_number=device.serial,
+        )
+        if device.fan is not None:
+            # After its gateway, which the fan is connected through
+            registry.async_get_or_create(
+                config_entry_id=entry.entry_id,
+                identifiers={(DOMAIN, device.fan.registry_identifier)},
+                name=device.fan.name,
+                manufacturer=MANUFACTURER,
+                via_device=(DOMAIN, device.fan.gateway_registry_identifier),
+            )
 
 
 async def _async_update_listener(hass: HomeAssistant, config_entry):

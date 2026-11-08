@@ -30,7 +30,7 @@ from .const import (
     PROVIDER_THERMOWORKS,
 )
 from .exceptions import MissingRequiredAttributeError
-from .models import ThermoworksChannel, ThermoworksDevice
+from .models import ThermoworksDevice
 
 _LOGGER: logging.Logger = logging.getLogger(__package__)
 
@@ -59,19 +59,12 @@ def _parse_device(
 ) -> ThermoworksDevice | None:
     """Parse a device and its channels, or return None if the device can't be used.
 
-    A channel that can't be parsed is logged and left out, without dropping the device.
+    Channels are currently passed separately because the legacy ThermoWorks API returns
+    them in separate requests. This will be removed once only the new ThermoWorks API is
+    used, which returns channels in the same request as the device.
     """
-    channels = []
-    for api_channel in api_channels:
-        try:
-            channels.append(ThermoworksChannel.from_api_channel(api_channel))
-        except MissingRequiredAttributeError as err:
-            _LOGGER.error("Skipping channel %s (Ch. %s) for device %s, missing: %s",
-                          api_channel.label or "unnamed channel", api_channel.number,
-                          _api_device_name(api_device),
-                          ", ".join(err.missing_attributes))
     try:
-        return ThermoworksDevice.from_api_device(api_device, channels)
+        return ThermoworksDevice.from_api_device(api_device, api_channels)
     except MissingRequiredAttributeError as err:
         _LOGGER.error("Skipping device %s, missing: %s",
                       _api_device_name(api_device), ", ".join(err.missing_attributes))
@@ -128,9 +121,10 @@ class ThermoworksCoordinator(DataUpdateCoordinator[ThermoworksData]):
         self.api = None
 
     async def async_update_data(self) -> ThermoworksData:
-        """Fetch data from the API and parse it into devices keyed by identifier.
+        """Fetch data from the API and parse it.
 
-        Parsing happens once here, so entities only read typed data (see models.py).
+        Parsing is done before entity update hooks are called so that entities only read
+        typed data.
         """
 
         _LOGGER.debug(
@@ -138,11 +132,12 @@ class ThermoworksCoordinator(DataUpdateCoordinator[ThermoworksData]):
         )
         if self.provider == PROVIDER_THERMOWORKS and self.client is None:
             raise ConfigEntryAuthFailed(
-                "ThermoWorks now requires an integrations API key"
+                "Integration requires a ThermoWorks API key"
             )
         if self.client is not None:
             return await self._async_update_api_data()
 
+        # Legacy Firebase API update path, still used for EU ThermoWorks accounts
         try:
             if self.api is None:
                 # Do not need to worry about invalid credentials here as they have been
@@ -212,7 +207,7 @@ class ThermoworksCoordinator(DataUpdateCoordinator[ThermoworksData]):
         """Fetch all devices and their channels in a single ThermoWorks API request."""
         assert self.client is not None
         try:
-            api_devices = await self.client.get_devices()
+            api_devices: list[Device] = await self.client.get_devices()
         except ApiAuthenticationError as err:
             raise ConfigEntryAuthFailed("ThermoWorks API key was rejected") from err
         except RateLimitError as err:
@@ -225,7 +220,9 @@ class ThermoworksCoordinator(DataUpdateCoordinator[ThermoworksData]):
 
         data = ThermoworksData()
         for api_device in api_devices:
-            device = _parse_device(api_device, api_device.channels or [])
+            device: ThermoworksDevice | None = _parse_device(
+                api_device, api_device.channels or []
+            )
             if device is not None:
                 data.devices[device.get_identifier()] = device
 

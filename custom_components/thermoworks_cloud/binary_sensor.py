@@ -11,12 +11,11 @@ from homeassistant.components.binary_sensor import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from thermoworks_cloud.models import Alarm
 
 from .const import DOMAIN
 from .coordinator import ThermoworksCoordinator
 from .entity import ChannelView, ThermoworksChannelEntity, ThermoworksFanEntity, View
-from .models import ThermoworksChannel, ThermoworksFan
+from .models import ThermoworksAlarm, ThermoworksChannel, ThermoworksFan, Unit
 
 
 async def async_setup_entry(
@@ -31,12 +30,10 @@ async def async_setup_entry(
 
     new_entities: list[BinarySensorEntity] = []
     for device in coordinator.data.devices.values():
-        if (fan_connected := FanConnectedSensor.build(hass, coordinator, device)) is not None:
-            new_entities.append(fan_connected)
-
-        for device_channel in device.channels.values():
-            for alarm_sensor in (HighAlarmBinarySensor, LowAlarmBinarySensor):
-                entity = alarm_sensor.build(hass, coordinator, device, device_channel)
+        # BINARY_SENSORS is at the end of the file, after the classes it lists
+        for binary_sensor in BINARY_SENSORS:
+            for source in binary_sensor.sources(device):
+                entity = binary_sensor.build(hass, coordinator, device, source)
                 if entity is not None:
                     new_entities.append(entity)
 
@@ -81,7 +78,7 @@ class AlarmState:
     active: bool
     enabled: bool | None
     value: float | None
-    units: str | None
+    units: Unit | None
 
 
 class AlarmBinarySensor(ThermoworksChannelEntity[AlarmState], BinarySensorEntity):
@@ -98,7 +95,7 @@ class AlarmBinarySensor(ThermoworksChannelEntity[AlarmState], BinarySensorEntity
 
     @classmethod
     @abstractmethod
-    def _alarm(cls, channel: ThermoworksChannel) -> Alarm | None:
+    def _alarm(cls, channel: ThermoworksChannel) -> ThermoworksAlarm | None:
         """Return the alarm this sensor shows."""
 
     @classmethod
@@ -141,7 +138,7 @@ class HighAlarmBinarySensor(AlarmBinarySensor):
     _attr_translation_key = "high_alarm"
 
     @classmethod
-    def _alarm(cls, channel: ThermoworksChannel) -> Alarm | None:
+    def _alarm(cls, channel: ThermoworksChannel) -> ThermoworksAlarm | None:
         return channel.alarm_high
 
     @property
@@ -158,10 +155,18 @@ class LowAlarmBinarySensor(AlarmBinarySensor):
     _attr_translation_key = "low_alarm"
 
     @classmethod
-    def _alarm(cls, channel: ThermoworksChannel) -> Alarm | None:
+    def _alarm(cls, channel: ThermoworksChannel) -> ThermoworksAlarm | None:
         return channel.alarm_low
 
     @property
     def name(self) -> str:
         """Return the name of the sensor."""
         return f"{self._view.name} Low Alarm"
+
+
+# Every binary sensor type. Each is created for the sources on a device that have it.
+BINARY_SENSORS: list[type[FanConnectedSensor | AlarmBinarySensor]] = [
+    FanConnectedSensor,
+    HighAlarmBinarySensor,
+    LowAlarmBinarySensor,
+]
