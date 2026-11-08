@@ -77,10 +77,8 @@ def _async_register_devices(
     - Device details (name, model, firmware) are defined once regardless of entity
     - Details stay current, as this runs after every successful fetch
 
-    Each device is registered under its parsed model's `registry_identifier`, and entities
-    attach by that same identifier (see `entity.py`), so neither side builds identifiers
-    itself. A name the user sets in Home Assistant is stored separately (`name_by_user`), so
-    updating `name` here never overwrites it.
+    Each device is registered using it's `registry_identifier` which is created when the 
+    device is parsed. The `registry_identifier` is also used by entities to attach to the.
     """
     # A failed refresh keeps the previous data, which was already registered
     if not coordinator.last_update_success:
