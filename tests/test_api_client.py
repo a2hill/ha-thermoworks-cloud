@@ -1032,7 +1032,7 @@ async def test_channel_entities_are_named_after_their_channel(
 
 
 @pytest.mark.parametrize(
-    ("response", "registry_identifier"),
+    ("response", "ha_device_identifier"),
     [
         pytest.param(
             GET_DEVICES_DISTINCT_DEVICE_ID_RESPONSE, "aa:bb:cc:dd:ee:ff", id="device-id"
@@ -1046,7 +1046,7 @@ async def test_entity_identity_prefers_device_id_over_serial(
     hass: HomeAssistant,
     api_test_object: ApiTestObject,
     response: dict[str, Any],
-    registry_identifier: str,
+    ha_device_identifier: str,
 ) -> None:
     """Devices and unique ids use the device id, falling back to the serial without one."""
 
@@ -1058,16 +1058,16 @@ async def test_entity_identity_prefers_device_id_over_serial(
     await _set_up(hass, entry)
 
     # Assert
-    _registered_device(hass, entry, registry_identifier)
-    _registered_device(hass, entry, f"{registry_identifier}-fan")
+    _registered_device(hass, entry, ha_device_identifier)
+    _registered_device(hass, entry, f"{ha_device_identifier}-fan")
     unique_ids = {
         entity.unique_id
         for entity in er.async_entries_for_config_entry(er.async_get(hass), entry.entry_id)
     }
     assert {
-        f"{DOMAIN}-{registry_identifier}",
-        f"{DOMAIN}-{registry_identifier}-1",
-        f"{DOMAIN}-{registry_identifier}-fan-state",
+        f"{DOMAIN}-{ha_device_identifier}",
+        f"{DOMAIN}-{ha_device_identifier}-1",
+        f"{DOMAIN}-{ha_device_identifier}-fan-state",
     } <= unique_ids
 
 

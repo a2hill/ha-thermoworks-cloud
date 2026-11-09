@@ -15,8 +15,8 @@ nothing about Home Assistant entities.
   Where there's a rule over a value, the rule runs here and only its result is stored: a
   channel keeps `reading` but not the raw value. That way there's no path around the rule,
   and it can't drift between the entities that depend on it.
-- Every type that has entities carries the `device_identifier` of the device it's on, which
-  is how its entities find it again, and the `registry_identifier` of the Home Assistant
+- Every type that has entities carries the `device_key` of the device it's on, which
+  is how its entities find it again, and the `ha_device_identifier` of the Home Assistant
   device they attach to. Both are derived once here.
 """
 
@@ -134,9 +134,9 @@ class ThermoworksChannel:
     """A device channel, such as a probe or humidity sensor."""
 
     # Its device's
-    device_identifier: str
+    device_key: str
     # Its device's, since channel entities attach to the device
-    registry_identifier: str
+    ha_device_identifier: str
     number: str
     # None when the API reports a unit this integration doesn't handle
     units: Unit | None
@@ -166,8 +166,8 @@ class ThermoworksChannel:
             raise MissingRequiredAttributeError(missing, cls)
 
         return cls(
-            device_identifier=device.device_identifier,
-            registry_identifier=device.registry_identifier,
+            device_key=device.device_key,
+            ha_device_identifier=device.ha_device_identifier,
             number=channel.number,
             units=Unit.parse(channel.units),
             reading=_valid_reading(channel),
@@ -195,16 +195,16 @@ class ThermoworksFan:
 
     The API reports the fan as a field on its gateway, and it's kept on the gateway here
     too, like channels. It's still its own device in Home Assistant, so it has its own
-    registry identifier, and its entities attach to it like any other device.
+    `ha_device_identifier`, and its entities attach to it like any other device.
     """
 
     # The gateway's
-    device_identifier: str
+    device_key: str
     # The identifier used to register it to HA, derived from the gateway's id since the API
     # does not give it an identifier of its own
-    registry_identifier: str
-    # The HA registry id of the gateway it connects through
-    gateway_registry_identifier: str
+    ha_device_identifier: str
+    # The gateway's `ha_device_identifier`, the device it connects through
+    gateway_ha_device_identifier: str
     name: str
     # The gateway's display units which determine the units for the fan
     display_units: Unit | None = None
@@ -218,9 +218,9 @@ class ThermoworksFan:
     def from_api_fan(cls, fan: Fan, gateway: "ThermoworksDevice") -> "ThermoworksFan":
         """Parse a fan from its gateway's API data."""
         return cls(
-            device_identifier=gateway.device_identifier,
-            registry_identifier=f"{gateway.registry_identifier}-fan",
-            gateway_registry_identifier=gateway.registry_identifier,
+            device_key=gateway.device_key,
+            ha_device_identifier=f"{gateway.ha_device_identifier}-fan",
+            gateway_ha_device_identifier=gateway.ha_device_identifier,
             name=f"{gateway.label or gateway.display_name()} Fan",
             display_units=gateway.device_display_units,
             connected=fan.connected,
@@ -291,16 +291,16 @@ class ThermoworksDevice:
         return replace(gateway, channels=channels, fan=fan)
 
     @property
-    def device_identifier(self) -> str:
-        """Return the device identifier, preferring device_id but falling back to serial."""
+    def device_key(self) -> str:
+        """Return the key for this device in our data, preferring device_id but falling back to serial."""
         return self.device_id if self.device_id else self.serial
 
     @property
-    def registry_identifier(self) -> str:
+    def ha_device_identifier(self) -> str:
         """Return the identifier this device is registered under in Home Assistant."""
-        return format_mac(self.device_identifier)
+        return format_mac(self.device_key)
 
     def display_name(self) -> str:
         """Return the display name of the device."""
         # {user given name} ({rfx gateway, rfx meat, node, etc.} - {usually serial number})
-        return f"{self.label or "unnamed device"} ({self.device_name or "unknown device"} - {self.device_identifier})"
+        return f"{self.label or "unnamed device"} ({self.device_name or "unknown device"} - {self.device_key})"

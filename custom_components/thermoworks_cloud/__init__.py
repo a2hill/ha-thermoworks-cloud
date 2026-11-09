@@ -77,8 +77,8 @@ def _async_register_devices(
     - Device details (name, model, firmware) are defined once regardless of entity
     - Details stay current, as this runs after every successful fetch
 
-    Each device is registered using it's `registry_identifier` which is created when the 
-    device is parsed. The `registry_identifier` is also used by entities to attach to the.
+    Each device is registered using it's `ha_device_identifier` which is created when the 
+    device is parsed. The `ha_device_identifier` is also used by entities to attach to the.
     """
     # A failed refresh keeps the previous data, which was already registered
     if not coordinator.last_update_success:
@@ -89,7 +89,7 @@ def _async_register_devices(
     for device in coordinator.data.devices.values():
         registry.async_get_or_create(
             config_entry_id=entry.entry_id,
-            identifiers={(DOMAIN, device.registry_identifier)},
+            identifiers={(DOMAIN, device.ha_device_identifier)},
             name=device.label,
             manufacturer=MANUFACTURER,
             model=device.device_name,
@@ -100,10 +100,10 @@ def _async_register_devices(
             # After its gateway, which the fan is connected through
             registry.async_get_or_create(
                 config_entry_id=entry.entry_id,
-                identifiers={(DOMAIN, device.fan.registry_identifier)},
+                identifiers={(DOMAIN, device.fan.ha_device_identifier)},
                 name=device.fan.name,
                 manufacturer=MANUFACTURER,
-                via_device=(DOMAIN, device.fan.gateway_registry_identifier),
+                via_device=(DOMAIN, device.fan.gateway_ha_device_identifier),
             )
 
 

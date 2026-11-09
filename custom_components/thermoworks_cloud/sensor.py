@@ -125,8 +125,6 @@ class BatterySensor(DeviceSensor[BatteryState]):
     """Battery level of the device, with a charging icon while it charges."""
 
     suffix = "battery"
-    # Created without the suffix in its unique id
-    unique_id_has_suffix = False
 
     # https://developers.home-assistant.io/docs/core/entity/sensor/#available-device-classes
     _attr_device_class = SensorDeviceClass.BATTERY
@@ -143,6 +141,10 @@ class BatterySensor(DeviceSensor[BatteryState]):
     # https://developers.home-assistant.io/docs/core/entity/sensor#properties
     _attr_native_unit_of_measurement = PERCENTAGE
     _attr_suggested_display_precision = 0
+
+    def _unique_id(self) -> str:
+        # Created without the suffix
+        return f"{DOMAIN}-{self._ha_device_identifier}"
 
     @classmethod
     def parse(cls, device: ThermoworksDevice) -> View[BatteryState] | None:
@@ -387,13 +389,14 @@ class MeasurementSensor(ChannelSensor[Measurement]):
     # The reading's unit. The sensor only applies to channels in one of these.
     supported_units: tuple[Unit, ...]
 
-    # Created without the suffix in their unique ids
-    unique_id_has_suffix = False
-
     _view: MeasurementView
 
     # Changes on device contact without a new measurement, which would bloat the recorder
     _unrecorded_attributes = frozenset({"last_seen"})
+
+    def _unique_id(self) -> str:
+        # Created without the suffix
+        return f"{DOMAIN}-{self._ha_device_identifier}-{self._channel_number}"
 
     @classmethod
     def parse(cls, channel: ThermoworksChannel) -> MeasurementView | None:

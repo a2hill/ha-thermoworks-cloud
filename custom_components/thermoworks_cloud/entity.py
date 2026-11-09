@@ -21,12 +21,28 @@ Every entity follows the same rules:
   the last one is kept for the description.
 - A value Home Assistant should show as unknown is part of the entity state, for entities
   where that happens (e.g. a fan that doesn't report whether it's connected).
-- Identity lives here. Every source carries the `device_identifier` of the device it's on and
-  the `registry_identifier` of the device its entities attach to (the `Source` protocol),
-  registered in `__init__.py`. Entities are built from the source alone. The entity id and
-  unique id are both built in `build` and `__init__` from the same parts: the device, any
-  parts each base class adds (like the channel number), and the class's suffix. Entities
-  never build identifiers themselves.
+- Identity lives here. Entities are built from their source alone, and their ids are set
+  in `build` and `__init__`, never by entities themselves.
+
+Identifiers, Home Assistant's first and then ours:
+
+- `unique_id`: the key Home Assistant's entity registry stores an entity under. Never shown.
+  Changing it orphans the entity, so existing formats can't change.
+- `entity_id`: what users see and can rename, e.g. `sensor.abc123_last_seen`. We only
+  suggest it, when the entity is created.
+- object id: Home Assistant's name for the part of the `entity_id` after the platform. We
+  suggest one, and Home Assistant adds `_2` etc. if it's taken.
+- device identifiers: `DeviceInfo(identifiers={(DOMAIN, x)})`, how a device is found in
+  Home Assistant's device registry.
+- `device_key`: the device's `device_id`, or its serial, and its key in
+  `ThermoworksData.devices`. Every source carries its device's, so its entities can find it.
+  Object ids start with it.
+- `ha_device_identifier`: the `x` above, for the device a source's entities attach to,
+  registered in `__init__.py`. Unique ids start with it.
+
+The default ids are `{device_key}_{suffix}` and `{DOMAIN}-{ha_device_identifier}-{suffix}`.
+A class whose ids were created in another format overrides `_suggested_object_id` or
+`_unique_id` to return it.
 
 State is written on every update so availability changes always reach Home Assistant.
 Nothing here raises: an exception from a listener would skip that entity's state write and
@@ -52,13 +68,13 @@ class Source(Protocol):
     """A parsed type that has entities: it knows its device and the device they attach to."""
 
     @property
-    def device_identifier(self) -> str:
-        """Return the identifier of the device it's on, the key in `ThermoworksData.devices`."""
+    def device_key(self) -> str:
+        """Return the key in `ThermoworksData.devices` of the device it's on."""
         ...
 
     @property
-    def registry_identifier(self) -> str:
-        """Return the identifier of the Home Assistant device its entities attach to."""
+    def ha_device_identifier(self) -> str:
+        """Return the device registry identifier of the device its entities attach to."""
         ...
 
 
@@ -84,9 +100,6 @@ class ThermoworksEntity[S: Source, R](CoordinatorEntity[ThermoworksCoordinator])
     entity_id_format: ClassVar[str]
     # Ends both ids. The entity id is generated as a slug, so "last-seen" becomes "last_seen".
     suffix: ClassVar[str]
-    # False only for entities whose unique id was created without the suffix, which can't
-    # change without orphaning existing entities
-    unique_id_has_suffix: ClassVar[bool] = True
 
     _view: View[R]
 
@@ -96,16 +109,9 @@ class ThermoworksEntity[S: Source, R](CoordinatorEntity[ThermoworksCoordinator])
         Create entities with `build`, which only creates one where it applies.
         """
         super().__init__(coordinator)
-        self._device_identifier = source.device_identifier
-        self._registry_identifier = source.registry_identifier
-        self._attr_unique_id = "-".join(
-            [
-                DOMAIN,
-                self._registry_identifier,
-                *self._unique_id_parts(),
-                *([self.suffix] if self.unique_id_has_suffix else []),
-            ]
-        )
+        self._device_key = source.device_key
+        self._ha_device_identifier = source.ha_device_identifier
+        self._attr_unique_id = self._unique_id()
         view = self.parse(source)
         if view is None:
             raise ValueError(f"{type(self).__name__} doesn't apply to {source}")
@@ -120,18 +126,19 @@ class ThermoworksEntity[S: Source, R](CoordinatorEntity[ThermoworksCoordinator])
         if cls.parse(source) is None:
             return None
         entity = cls(coordinator, source)
-        # The device identifier rather than the registry identifier, to keep the entity ids
-        # new entities have always been given
-        object_id = "_".join(
-            [entity._device_identifier, *entity._entity_id_parts(), cls.suffix]
+        entity.entity_id = async_generate_entity_id(
+            cls.entity_id_format, entity._suggested_object_id(), hass=hass
         )
-        entity.entity_id = async_generate_entity_id(cls.entity_id_format, object_id, hass=hass)
         return entity
 
     @classmethod
     @abstractmethod
     def sources(cls, device: ThermoworksDevice) -> Iterable[S]:
-        """Return the sources on the device that could have this entity."""
+        """Return the sources on the device that could have this entity.
+        
+        A device might have multiple sources such as channels or accessories (like a fan) for a 
+        given entity type.
+        """
 
     @abstractmethod
     def _select(self, device: ThermoworksDevice) -> S | None:
@@ -140,20 +147,26 @@ class ThermoworksEntity[S: Source, R](CoordinatorEntity[ThermoworksCoordinator])
     @classmethod
     @abstractmethod
     def parse(cls, source: S) -> View[R] | None:
-        """Return everything this entity shows, or None if the source doesn't have it."""
+        """Return the view for this entity, or None if the source doesn't apply to this 
+        entity type."""
 
-    def _entity_id_parts(self) -> list[str]:
-        """Return parts of the entity id between the device identifier and the suffix."""
-        return []
+    def _suggested_object_id(self) -> str:
+        """Return the object id to suggest for the entity id, e.g. "abc123_last_seen".
 
-    def _unique_id_parts(self) -> list[str]:
-        """Return parts of the unique id between the registry identifier and the suffix."""
-        return []
+        Entity ids were previously based off of the device key rather than the
+        `ha_device_identifier`. Continue to use the device key for new entities to avoid
+        orphaning existing ones.
+        """
+        return f"{self._device_key}_{self.suffix}"
+
+    def _unique_id(self) -> str:
+        """Return the unique id. Overrides return a format existing entities already have."""
+        return f"{DOMAIN}-{self._ha_device_identifier}-{self.suffix}"
 
     @property
     def device_info(self) -> DeviceInfo:
         """Attach the entity to its source's device, which `__init__.py` registers."""
-        return DeviceInfo(identifiers={(DOMAIN, self._registry_identifier)})
+        return DeviceInfo(identifiers={(DOMAIN, self._ha_device_identifier)})
 
     @property
     def _entity_state(self) -> R:
@@ -178,7 +191,7 @@ class ThermoworksEntity[S: Source, R](CoordinatorEntity[ThermoworksCoordinator])
     def _handle_coordinator_update(self) -> None:
         """Parse a new view from the latest data and write state either way."""
         data: ThermoworksData = self.coordinator.data
-        device = data.devices.get(self._device_identifier)
+        device = data.devices.get(self._device_key)
         source = self._select(device) if device is not None else None
         view = self.parse(source) if source is not None else None
         self._has_new_view = view is not None
@@ -215,11 +228,12 @@ class ThermoworksChannelEntity[R](ThermoworksEntity[ThermoworksChannel, R]):
     def _select(self, device: ThermoworksDevice) -> ThermoworksChannel | None:
         return device.channels.get(self._channel_number)
 
-    def _entity_id_parts(self) -> list[str]:
-        return ["ch", self._channel_number]
+    def _suggested_object_id(self) -> str:
+        return f"{self._device_key}_ch_{self._channel_number}_{self.suffix}"
 
-    def _unique_id_parts(self) -> list[str]:
-        return [self._channel_number]
+    def _unique_id(self) -> str:
+        # Without the "ch" the object id has, as channel unique ids were created
+        return f"{DOMAIN}-{self._ha_device_identifier}-{self._channel_number}-{self.suffix}"
 
 
 class ThermoworksFanEntity[R](ThermoworksEntity[ThermoworksFan, R]):
@@ -232,6 +246,7 @@ class ThermoworksFanEntity[R](ThermoworksEntity[ThermoworksFan, R]):
     def _select(self, device: ThermoworksDevice) -> ThermoworksFan | None:
         return device.fan
 
-    def _entity_id_parts(self) -> list[str]:
-        # The fan's registry identifier already ends in "-fan", so the unique id needs no part
-        return ["fan"]
+    def _suggested_object_id(self) -> str:
+        # The device key is the gateway's. The default unique id needs no "fan", since the
+        # fan's `ha_device_identifier` already ends in "-fan".
+        return f"{self._device_key}_fan_{self.suffix}"
