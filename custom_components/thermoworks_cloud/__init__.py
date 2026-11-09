@@ -78,7 +78,7 @@ def _async_register_devices(
     - Details stay current, as this runs after every successful fetch
 
     Each device is registered using it's `ha_device_identifier` which is created when the 
-    device is parsed. The `ha_device_identifier` is also used by entities to attach to the.
+    device is parsed. The `ha_device_identifier` is also how entities to attach to the device.
     """
     # A failed refresh keeps the previous data, which was already registered
     if not coordinator.last_update_success:
