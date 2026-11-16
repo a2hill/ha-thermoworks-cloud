@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from types import NoneType
 from typing import Any, Optional, Protocol, Type, TypeGuard, Union, get_args, get_origin, get_type_hints
-from thermoworks_cloud.models import Alarm, ChannelStatus, Device, DeviceChannel, Fan
+from thermoworks_cloud.models import Alarm, ChannelStatus, Device, DeviceChannel, Fan, MinMaxReading
 
 from .exceptions import MissingRequiredAttributeError
 
@@ -166,6 +166,8 @@ class ThermoworksChannel:
     alarming: Optional[bool] = None
     last_telemetry_saved: Optional[datetime] = None
     last_seen: Optional[datetime] = None
+    minimum: Optional[float] = None
+    maximum: Optional[float] = None
 
     @classmethod
     def is_thermoworks_channel(cls, obj: Any) -> TypeGuard["ThermoworksChannel"]:
@@ -194,6 +196,8 @@ class ThermoworksChannel:
             alarming=channel.alarming,
             last_telemetry_saved=channel.last_telemetry_saved,
             last_seen=channel.last_seen,
+            minimum=_min_max_value(getattr(channel, "minimum", None)),
+            maximum=_min_max_value(getattr(channel, "maximum", None)),
         )
 
     @property
@@ -230,3 +234,10 @@ class ChannelWithLowAlarm(ThermoworksChannel):
     def is_protocol_compliant(cls, obj: Any) -> TypeGuard["ChannelWithLowAlarm"]:
         """Return True if the object implements ChannelWithLowAlarm protocol."""
         return has_required_attributes(obj, ChannelWithLowAlarm)
+
+
+def _min_max_value(min_max: Optional[MinMaxReading]) -> Optional[float]:
+    """Return the value of a channel's minimum or maximum, in the channel's units."""
+    if min_max is None or min_max.reading is None:
+        return None
+    return min_max.reading.value

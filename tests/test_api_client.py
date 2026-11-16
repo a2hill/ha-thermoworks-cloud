@@ -481,6 +481,8 @@ async def test_reading_exposes_source_metadata(
     assert dt_util.parse_datetime(state.attributes["last_seen"]) == (
         dt_util.parse_datetime(expected["lastSeen"])
     )
+    assert state.attributes["minimum"] == expected["minimum"]
+    assert state.attributes["maximum"] == expected["maximum"]
 
 
 @pytest.mark.parametrize(
