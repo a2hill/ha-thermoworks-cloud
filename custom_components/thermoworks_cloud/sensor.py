@@ -523,6 +523,8 @@ class ChannelSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
                 channel.last_telemetry_saved.isoformat() if channel.last_telemetry_saved else None
             ),
             "last_seen": channel.last_seen.isoformat() if channel.last_seen else None,
+            "minimum": channel.minimum,
+            "maximum": channel.maximum,
         }
 
     @property
