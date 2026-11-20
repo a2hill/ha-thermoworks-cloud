@@ -65,10 +65,8 @@ class FanConnectedSensor(ThermoworksFanEntity[FanConnection], BinarySensorEntity
     def parse(cls, fan: ThermoworksFan) -> View[FanConnection]:
         return View(entity_state=FanConnection(fan.connected))
 
-    @property
-    def is_on(self) -> bool | None:
-        """Return true if the fan accessory is connected."""
-        return self._entity_state.connected
+    def _apply(self, entity_state: FanConnection) -> None:
+        self._attr_is_on = entity_state.connected
 
 
 @dataclass(frozen=True)
@@ -115,19 +113,13 @@ class AlarmBinarySensor(ThermoworksChannelEntity[AlarmState], BinarySensorEntity
             name=channel.display_name(),
         )
 
-    @property
-    def extra_state_attributes(self) -> dict[str, bool | float | str | None]:
-        """Return alarm metadata."""
-        return {
-            "enabled": self._entity_state.enabled,
-            "value": self._entity_state.value,
-            "units": self._entity_state.units,
+    def _apply(self, entity_state: AlarmState) -> None:
+        self._attr_is_on = entity_state.active
+        self._attr_extra_state_attributes = {
+            "enabled": entity_state.enabled,
+            "value": entity_state.value,
+            "units": entity_state.units,
         }
-
-    @property
-    def is_on(self) -> bool:
-        """Return true if the alarm is active."""
-        return self._entity_state.active
 
 
 class HighAlarmBinarySensor(AlarmBinarySensor):
@@ -141,10 +133,8 @@ class HighAlarmBinarySensor(AlarmBinarySensor):
     def _alarm(cls, channel: ThermoworksChannel) -> ThermoworksAlarm | None:
         return channel.alarm_high
 
-    @property
-    def name(self) -> str:
-        """Return the name of the sensor."""
-        return f"{self._view.name} High Alarm"
+    def _describe(self, view: ChannelView[AlarmState]) -> None:
+        self._attr_name = f"{view.name} High Alarm"
 
 
 class LowAlarmBinarySensor(AlarmBinarySensor):
@@ -158,10 +148,8 @@ class LowAlarmBinarySensor(AlarmBinarySensor):
     def _alarm(cls, channel: ThermoworksChannel) -> ThermoworksAlarm | None:
         return channel.alarm_low
 
-    @property
-    def name(self) -> str:
-        """Return the name of the sensor."""
-        return f"{self._view.name} Low Alarm"
+    def _describe(self, view: ChannelView[AlarmState]) -> None:
+        self._attr_name = f"{view.name} Low Alarm"
 
 
 # Every binary sensor type. Each is created for the sources on a device that have it.

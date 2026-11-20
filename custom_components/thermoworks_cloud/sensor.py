@@ -5,7 +5,6 @@ and the base classes in `entity.py` handle identity, updates and availability th
 for all of them.
 """
 from abc import abstractmethod
-from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 import logging
@@ -154,18 +153,10 @@ class BatterySensor(DeviceSensor[BatteryState]):
             level=float(device.battery), charging=device.battery_state == "charging"
         ))
 
-    @property
-    def icon(self) -> str | None:
-        """Return the icon to use in the frontend, if any."""
-        # Only handle charging, as HA doesn't natively support a charging icon.
-        # The icon is read even while unavailable, so it can't assume an entity state.
-        state = self._view.entity_state
-        return "mdi:battery-charging-100" if state and state.charging else None
-
-    @property
-    def native_value(self) -> float:
-        """Return the battery level."""
-        return self._entity_state.level
+    def _apply(self, entity_state: BatteryState) -> None:
+        self._attr_native_value = entity_state.level
+        # Only handle charging, as HA doesn't natively support a charging icon
+        self._attr_icon = "mdi:battery-charging-100" if entity_state.charging else None
 
 
 class SignalSensor(DeviceSensor[float]):
@@ -191,10 +182,8 @@ class SignalSensor(DeviceSensor[float]):
         signal = device.signal_strength
         return View(entity_state=float(signal)) if signal is not None else None
 
-    @property
-    def native_value(self) -> float:
-        """Return the signal strength."""
-        return self._entity_state
+    def _apply(self, entity_state: float) -> None:
+        self._attr_native_value = entity_state
 
 
 class LastSeenSensor(DeviceSensor[datetime]):
@@ -211,10 +200,8 @@ class LastSeenSensor(DeviceSensor[datetime]):
         last_seen = device.last_seen
         return View(entity_state=last_seen) if last_seen is not None else None
 
-    @property
-    def native_value(self) -> datetime:
-        """Return when the device was last seen."""
-        return self._entity_state
+    def _apply(self, entity_state: datetime) -> None:
+        self._attr_native_value = entity_state
 
 
 class TransmitIntervalSensor(DeviceSensor[int]):
@@ -231,10 +218,8 @@ class TransmitIntervalSensor(DeviceSensor[int]):
         interval = device.transmit_interval_in_seconds
         return View(entity_state=interval) if interval is not None else None
 
-    @property
-    def native_value(self) -> int:
-        """Return the transmit interval."""
-        return self._entity_state
+    def _apply(self, entity_state: int) -> None:
+        self._attr_native_value = entity_state
 
 
 class FanSensor[R](ThermoworksFanEntity[R], SensorEntity):
@@ -271,11 +256,9 @@ class FanStateSensor(FanSensor[FanStatus]):
             return View(entity_state=None)
         return View(entity_state=FanStatus(fan.activity))
 
-    @property
-    def native_value(self) -> str | None:
-        """Return the fan state name."""
-        activity = self._entity_state.activity
-        return activity.value if activity is not None else None
+    def _apply(self, entity_state: FanStatus) -> None:
+        activity = entity_state.activity
+        self._attr_native_value = activity.value if activity is not None else None
 
 
 @dataclass(frozen=True)
@@ -298,8 +281,6 @@ class FanSetTemperatureSensor(FanSensor[FanSetpoint]):
 
     suffix = "set-temperature"
 
-    _view: FanSetTemperatureView
-
     _attr_suggested_display_precision = 0
     _attr_translation_key = "fan_set_temperature"
 
@@ -314,28 +295,16 @@ class FanSetTemperatureSensor(FanSensor[FanSetpoint]):
             unit=HA_UNITS[unit] if unit in TEMPERATURE_UNITS else None,
         )
 
-    @property
-    def device_class(self) -> SensorDeviceClass | None:
-        """Return device class when the API reports a temperature unit."""
-        return SensorDeviceClass.TEMPERATURE if self._view.unit is not None else None
+    def _describe(self, view: FanSetTemperatureView) -> None:
+        self._attr_native_unit_of_measurement = view.unit
+        # Only a temperature when the API reports a temperature unit
+        self._attr_device_class = SensorDeviceClass.TEMPERATURE if view.unit is not None else None
 
-    @property
-    def native_unit_of_measurement(self) -> str | None:
-        """Return unit of temperature."""
-        return self._view.unit
-
-    @property
-    def extra_state_attributes(self) -> dict[str, str]:
-        """Return the channel the fan follows."""
-        if self._entity_state.fan_channel is None:
-            return {}
-
-        return {"channel": self._entity_state.fan_channel}
-
-    @property
-    def native_value(self) -> int | None:
-        """Return the fan set temperature."""
-        return self._entity_state.temperature
+    def _apply(self, entity_state: FanSetpoint) -> None:
+        self._attr_native_value = entity_state.temperature
+        self._attr_extra_state_attributes = (
+            {"channel": entity_state.fan_channel} if entity_state.fan_channel is not None else {}
+        )
 
 
 class ChannelSensor[R](ThermoworksChannelEntity[R], SensorEntity):
@@ -351,17 +320,10 @@ class ChannelSensor[R](ThermoworksChannelEntity[R], SensorEntity):
     # https://developers.home-assistant.io/docs/core/entity/sensor#properties
     _attr_suggested_display_precision = 1
 
-    @property
-    def name(self) -> str:
-        """Return the name of the sensor."""
-        # This is the name that will be shown in the Entity UI.
-        # It is the name of the channel, not the device.
-        return self._view.name.capitalize()
-
-    @property
-    def translation_placeholders(self) -> Mapping[str, str]:
-        """Placeholder values for string internationalization."""
-        return {"channel_name": self._view.name}
+    def _describe(self, view: ChannelView[R]) -> None:
+        # Named after the channel, not the device
+        self._attr_name = view.name.capitalize()
+        self._attr_translation_placeholders = {"channel_name": view.name}
 
 
 @dataclass(frozen=True)
@@ -389,8 +351,6 @@ class MeasurementSensor(ChannelSensor[Measurement]):
     # The reading's unit. The sensor only applies to channels in one of these.
     supported_units: tuple[Unit, ...]
 
-    _view: MeasurementView
-
     # Changes on device contact without a new measurement, which would bloat the recorder
     _unrecorded_attributes = frozenset({"last_seen"})
 
@@ -415,20 +375,13 @@ class MeasurementSensor(ChannelSensor[Measurement]):
             unit=HA_UNITS[channel.units],
         )
 
-    @property
-    def native_unit_of_measurement(self) -> str:
-        """Return the reading's unit."""
-        return self._view.unit
+    def _describe(self, view: MeasurementView) -> None:
+        super()._describe(view)
+        self._attr_native_unit_of_measurement = view.unit
 
-    @property
-    def extra_state_attributes(self) -> dict[str, Any]:
-        """Return the channel metadata."""
-        return self._entity_state.attributes
-
-    @property
-    def native_value(self) -> float:
-        """Return the reading."""
-        return self._entity_state.value
+    def _apply(self, entity_state: Measurement) -> None:
+        self._attr_native_value = entity_state.value
+        self._attr_extra_state_attributes = entity_state.attributes
 
 
 class TemperatureSensor(MeasurementSensor):
@@ -484,8 +437,6 @@ class AlarmThresholdSensor(ChannelSensor[AlarmThreshold]):
     so it doesn't depend on the reading.
     """
 
-    _view: AlarmThresholdView
-
     _attr_suggested_display_precision = 0
 
     @classmethod
@@ -504,33 +455,22 @@ class AlarmThresholdSensor(ChannelSensor[AlarmThreshold]):
             unit=HA_UNITS.get(alarm.units) if alarm.units is not None else None,
         )
 
-    @property
-    def device_class(self) -> SensorDeviceClass | None:
-        """Return the alarm threshold device class."""
-        if self._view.unit in (UnitOfTemperature.FAHRENHEIT, UnitOfTemperature.CELSIUS):
-            return SensorDeviceClass.TEMPERATURE
-        if self._view.unit == PERCENTAGE:
-            return SensorDeviceClass.HUMIDITY
+    def _describe(self, view: AlarmThresholdView) -> None:
+        super()._describe(view)
+        self._attr_native_unit_of_measurement = view.unit
+        if view.unit in (UnitOfTemperature.FAHRENHEIT, UnitOfTemperature.CELSIUS):
+            self._attr_device_class = SensorDeviceClass.TEMPERATURE
+        elif view.unit == PERCENTAGE:
+            self._attr_device_class = SensorDeviceClass.HUMIDITY
+        else:
+            self._attr_device_class = None
 
-        return None
-
-    @property
-    def native_unit_of_measurement(self) -> str | None:
-        """Return alarm threshold unit."""
-        return self._view.unit
-
-    @property
-    def extra_state_attributes(self) -> dict[str, bool | None]:
-        """Return alarm metadata."""
-        return {
-            "enabled": self._entity_state.enabled,
-            "alarming": self._entity_state.alarming,
+    def _apply(self, entity_state: AlarmThreshold) -> None:
+        self._attr_native_value = entity_state.value
+        self._attr_extra_state_attributes = {
+            "enabled": entity_state.enabled,
+            "alarming": entity_state.alarming,
         }
-
-    @property
-    def native_value(self) -> float | None:
-        """Return the configured alarm threshold."""
-        return self._entity_state.value
 
 
 class HighAlarmThresholdSensor(AlarmThresholdSensor):
@@ -544,10 +484,9 @@ class HighAlarmThresholdSensor(AlarmThresholdSensor):
     def _alarm(cls, channel: ThermoworksChannel) -> ThermoworksAlarm | None:
         return channel.alarm_high
 
-    @property
-    def name(self) -> str:
-        """Return the name of the sensor."""
-        return f"{self._view.name} High Alarm Threshold"
+    def _describe(self, view: AlarmThresholdView) -> None:
+        super()._describe(view)
+        self._attr_name = f"{view.name} High Alarm Threshold"
 
 
 class LowAlarmThresholdSensor(AlarmThresholdSensor):
@@ -561,10 +500,9 @@ class LowAlarmThresholdSensor(AlarmThresholdSensor):
     def _alarm(cls, channel: ThermoworksChannel) -> ThermoworksAlarm | None:
         return channel.alarm_low
 
-    @property
-    def name(self) -> str:
-        """Return the name of the sensor."""
-        return f"{self._view.name} Low Alarm Threshold"
+    def _describe(self, view: AlarmThresholdView) -> None:
+        super()._describe(view)
+        self._attr_name = f"{view.name} Low Alarm Threshold"
 
 
 # Every sensor type. Each is created for the sources on a device that have it.
