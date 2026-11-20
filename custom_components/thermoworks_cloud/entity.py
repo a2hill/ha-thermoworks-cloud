@@ -65,36 +65,40 @@ from .models import ThermoworksChannel, ThermoworksDevice, ThermoworksFan
 
 
 class Source(Protocol):
-    """A parsed type that has entities: it knows its device and the device they attach to."""
+    """Properties which link an entity to its underlying data source (generally a device)"""
 
     @property
     def device_key(self) -> str:
-        """Return the key in `ThermoworksData.devices` of the device it's on."""
+        """The key to the entry in `ThermoworksData.devices` which contains the data 
+        for this entity."""
         ...
 
     @property
     def ha_device_identifier(self) -> str:
-        """Return the device registry identifier of the device its entities attach to."""
+        """The key for this entity's device in the HA device registry."""
         ...
 
 
 @dataclass(frozen=True)
 class View[R]:
-    """What an entity shows. Subclasses add the fields that describe the entity."""
+    """Contains the data that an entity parses from its source. Should contain only the 
+    data that the entity needs to update its state."""
 
-    # What the entity currently reads, or None if the source can't give it right now
+    # The entity state parsed from the data source, or None if the source can't give it right now
     entity_state: R | None
 
 
 @dataclass(frozen=True)
 class ChannelView[R](View[R]):
-    """What a channel entity shows. Every channel entity is named after its channel."""
+    """The data required for a channel entity."""
 
+    # Every channel entity has a name and is named after its channel.
     name: str
 
 
 class ThermoworksEntity[S: Source, R](CoordinatorEntity[ThermoworksCoordinator]):
-    """Parses a view from its source on every update and shows only what's in it."""
+    """Base class for all entities of Thermoworks devices. Parses a view from its source on 
+    every update."""
 
     # Set by each platform's base class, e.g. "sensor.{}"
     entity_id_format: ClassVar[str]
