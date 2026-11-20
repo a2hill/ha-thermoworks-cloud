@@ -84,7 +84,8 @@ class View[R]:
     """Contains the data that an entity parses from its source. Should contain only the 
     data that the entity needs to update its state."""
 
-    # The entity state parsed from the data source, or None if the source can't give it right now
+    # Contains the state required for an entity to be 'available' in HA terms. Will be None 
+    # if the source is unavailable and can't give it right now
     entity_state: R | None
 
 
@@ -102,7 +103,7 @@ class ThermoworksEntity[S: Source, R](CoordinatorEntity[ThermoworksCoordinator])
 
     # Set by each platform's base class, e.g. "sensor.{}"
     entity_id_format: ClassVar[str]
-    # Ends both ids. The entity id is generated as a slug, so "last-seen" becomes "last_seen".
+    # Appended to both ids of the entity. The entity id is generated as a slug, so "last-seen" becomes "last_seen".
     suffix: ClassVar[str]
 
     _view: View[R]
@@ -138,7 +139,7 @@ class ThermoworksEntity[S: Source, R](CoordinatorEntity[ThermoworksCoordinator])
     @classmethod
     @abstractmethod
     def sources(cls, device: ThermoworksDevice) -> Iterable[S]:
-        """Return the sources on the device that could have this entity.
+        """Return the sources on the device that could have this entity type.
         
         A device might have multiple sources such as channels or accessories (like a fan) for a 
         given entity type.
@@ -151,11 +152,11 @@ class ThermoworksEntity[S: Source, R](CoordinatorEntity[ThermoworksCoordinator])
     @classmethod
     @abstractmethod
     def parse(cls, source: S) -> View[R] | None:
-        """Return the view for this entity, or None if the source doesn't apply to this 
+        """Parse this entities view of a source, or None if the source doesn't apply to this 
         entity type."""
 
     def _suggested_object_id(self) -> str:
-        """Return the object id to suggest for the entity id, e.g. "abc123_last_seen".
+        """Return the object id to suggest for use in the the entity id, e.g. "abc123_last_seen".
 
         Entity ids were previously based off of the device key rather than the
         `ha_device_identifier`. Continue to use the device key for new entities to avoid
@@ -164,17 +165,17 @@ class ThermoworksEntity[S: Source, R](CoordinatorEntity[ThermoworksCoordinator])
         return f"{self._device_key}_{self.suffix}"
 
     def _unique_id(self) -> str:
-        """Return the unique id. Overrides return a format existing entities already have."""
+        """Return the unique id of the entity."""
         return f"{DOMAIN}-{self._ha_device_identifier}-{self.suffix}"
 
     @property
     def device_info(self) -> DeviceInfo:
-        """Attach the entity to its source's device, which `__init__.py` registers."""
+        """Information used by HA to link an entity to a device."""
         return DeviceInfo(identifiers={(DOMAIN, self._ha_device_identifier)})
 
     @property
     def _entity_state(self) -> R:
-        """Return the current entity state.
+        """Return the current state for an entity.
 
         Only for properties Home Assistant reads while the entity is available (state and
         attributes), which is exactly when there's an entity state.
