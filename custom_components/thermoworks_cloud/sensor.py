@@ -24,7 +24,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .const import DOMAIN
 from .coordinator import ThermoworksCoordinator
 from .entity import (
-    ChannelView,
+    ChannelDescription,
     ThermoworksChannelEntity,
     ThermoworksDeviceEntity,
     ThermoworksFanEntity,
@@ -146,17 +146,24 @@ class BatterySensor(DeviceSensor[BatteryState]):
         return f"{DOMAIN}-{self._ha_device_identifier}"
 
     @classmethod
-    def parse(cls, device: ThermoworksDevice) -> View[BatteryState] | None:
+    def parse(cls, device: ThermoworksDevice) -> View[BatteryState, None] | None:
         if device.battery is None:
             return None
-        return View(entity_state=BatteryState(
-            level=float(device.battery), charging=device.battery_state == "charging"
-        ))
+        return View(
+            entity_state=BatteryState(
+                level=float(device.battery), charging=device.battery_state == "charging"
+            ),
+            description=None,
+        )
 
     def _apply(self, entity_state: BatteryState) -> None:
         self._attr_native_value = entity_state.level
         # Only handle charging, as HA doesn't natively support a charging icon
         self._attr_icon = "mdi:battery-charging-100" if entity_state.charging else None
+
+    def _on_unavailable(self) -> None:
+        # HA shows the icon while unavailable, and the battery may no longer be charging
+        self._attr_icon = None
 
 
 class SignalSensor(DeviceSensor[float]):
@@ -178,9 +185,11 @@ class SignalSensor(DeviceSensor[float]):
     _attr_suggested_display_precision = 0
 
     @classmethod
-    def parse(cls, device: ThermoworksDevice) -> View[float] | None:
+    def parse(cls, device: ThermoworksDevice) -> View[float, None] | None:
         signal = device.signal_strength
-        return View(entity_state=float(signal)) if signal is not None else None
+        if signal is None:
+            return None
+        return View(entity_state=float(signal), description=None)
 
     def _apply(self, entity_state: float) -> None:
         self._attr_native_value = entity_state
@@ -195,10 +204,12 @@ class LastSeenSensor(DeviceSensor[datetime]):
     _attr_translation_key = "last_seen"
 
     @classmethod
-    def parse(cls, device: ThermoworksDevice) -> View[datetime] | None:
+    def parse(cls, device: ThermoworksDevice) -> View[datetime, None] | None:
         # Already parsed into UTC by the device model
         last_seen = device.last_seen
-        return View(entity_state=last_seen) if last_seen is not None else None
+        if last_seen is None:
+            return None
+        return View(entity_state=last_seen, description=None)
 
     def _apply(self, entity_state: datetime) -> None:
         self._attr_native_value = entity_state
@@ -214,15 +225,17 @@ class TransmitIntervalSensor(DeviceSensor[int]):
     _attr_translation_key = "transmit_interval"
 
     @classmethod
-    def parse(cls, device: ThermoworksDevice) -> View[int] | None:
+    def parse(cls, device: ThermoworksDevice) -> View[int, None] | None:
         interval = device.transmit_interval_in_seconds
-        return View(entity_state=interval) if interval is not None else None
+        if interval is None:
+            return None
+        return View(entity_state=interval, description=None)
 
     def _apply(self, entity_state: int) -> None:
         self._attr_native_value = entity_state
 
 
-class FanSensor[R](ThermoworksFanEntity[R], SensorEntity):
+class FanSensor[R, D = None](ThermoworksFanEntity[R, D], SensorEntity):
     """Base class for Thermoworks fan accessory sensors.
 
     Created for every fan, but only available while it's connected, since a disconnected
@@ -251,10 +264,10 @@ class FanStateSensor(FanSensor[FanStatus]):
     _attr_translation_key = "fan_state"
 
     @classmethod
-    def parse(cls, fan: ThermoworksFan) -> View[FanStatus]:
+    def parse(cls, fan: ThermoworksFan) -> View[FanStatus, None]:
         if fan.connected is not True:
-            return View(entity_state=None)
-        return View(entity_state=FanStatus(fan.activity))
+            return View(entity_state=None, description=None)
+        return View(entity_state=FanStatus(fan.activity), description=None)
 
     def _apply(self, entity_state: FanStatus) -> None:
         activity = entity_state.activity
@@ -270,13 +283,13 @@ class FanSetpoint:
 
 
 @dataclass(frozen=True)
-class FanSetTemperatureView(View[FanSetpoint]):
-    """The fan's setpoint, and the temperature unit the device displays."""
+class FanSetTemperatureDescription:
+    """The temperature unit the device displays, None if it isn't one HA knows."""
 
     unit: str | None
 
 
-class FanSetTemperatureSensor(FanSensor[FanSetpoint]):
+class FanSetTemperatureSensor(FanSensor[FanSetpoint, FanSetTemperatureDescription]):
     """The temperature the fan is set to hold."""
 
     suffix = "set-temperature"
@@ -285,20 +298,24 @@ class FanSetTemperatureSensor(FanSensor[FanSetpoint]):
     _attr_translation_key = "fan_set_temperature"
 
     @classmethod
-    def parse(cls, fan: ThermoworksFan) -> FanSetTemperatureView:
+    def parse(cls, fan: ThermoworksFan) -> View[FanSetpoint, FanSetTemperatureDescription]:
         unit = fan.display_units
-        return FanSetTemperatureView(
+        return View(
             entity_state=(
                 FanSetpoint(fan.set_temp, fan.fan_channel) if fan.connected is True else None
             ),
-            # A number without a known temperature unit is shown as a plain number
-            unit=HA_UNITS[unit] if unit in TEMPERATURE_UNITS else None,
+            description=FanSetTemperatureDescription(
+                # A number without a known temperature unit is shown as a plain number
+                unit=HA_UNITS[unit] if unit in TEMPERATURE_UNITS else None,
+            ),
         )
 
-    def _describe(self, view: FanSetTemperatureView) -> None:
-        self._attr_native_unit_of_measurement = view.unit
+    def _describe(self, description: FanSetTemperatureDescription) -> None:
+        self._attr_native_unit_of_measurement = description.unit
         # Only a temperature when the API reports a temperature unit
-        self._attr_device_class = SensorDeviceClass.TEMPERATURE if view.unit is not None else None
+        self._attr_device_class = (
+            SensorDeviceClass.TEMPERATURE if description.unit is not None else None
+        )
 
     def _apply(self, entity_state: FanSetpoint) -> None:
         self._attr_native_value = entity_state.temperature
@@ -307,7 +324,9 @@ class FanSetTemperatureSensor(FanSensor[FanSetpoint]):
         )
 
 
-class ChannelSensor[R](ThermoworksChannelEntity[R], SensorEntity):
+class ChannelSensor[R, D: ChannelDescription = ChannelDescription](
+    ThermoworksChannelEntity[R, D], SensorEntity
+):
     """Base class for thermoworks channel sensors."""
 
     entity_id_format = ENTITY_ID_FORMAT
@@ -320,10 +339,10 @@ class ChannelSensor[R](ThermoworksChannelEntity[R], SensorEntity):
     # https://developers.home-assistant.io/docs/core/entity/sensor#properties
     _attr_suggested_display_precision = 1
 
-    def _describe(self, view: ChannelView[R]) -> None:
+    def _describe(self, description: D) -> None:
         # Named after the channel, not the device
-        self._attr_name = view.name.capitalize()
-        self._attr_translation_placeholders = {"channel_name": view.name}
+        self._attr_name = description.name.capitalize()
+        self._attr_translation_placeholders = {"channel_name": description.name}
 
 
 @dataclass(frozen=True)
@@ -335,13 +354,13 @@ class Measurement:
 
 
 @dataclass(frozen=True)
-class MeasurementView(ChannelView[Measurement]):
-    """A channel's measurement, and the unit it's in."""
+class MeasurementDescription(ChannelDescription):
+    """A channel's name, and the unit its measurement is in."""
 
     unit: str
 
 
-class MeasurementSensor(ChannelSensor[Measurement]):
+class MeasurementSensor(ChannelSensor[Measurement, MeasurementDescription]):
     """Base class for sensors showing a channel's reading.
 
     Created from the channel's units, even before it has a reading, so a probe that
@@ -359,7 +378,9 @@ class MeasurementSensor(ChannelSensor[Measurement]):
         return f"{DOMAIN}-{self._ha_device_identifier}-{self._channel_number}"
 
     @classmethod
-    def parse(cls, channel: ThermoworksChannel) -> MeasurementView | None:
+    def parse(
+        cls, channel: ThermoworksChannel
+    ) -> View[Measurement, MeasurementDescription] | None:
         if channel.units not in cls.supported_units:
             return None
         measurement = None
@@ -369,15 +390,16 @@ class MeasurementSensor(ChannelSensor[Measurement]):
                 # Source metadata, kept separate from Home Assistant's state update time
                 attributes=_channel_attributes(channel),
             )
-        return MeasurementView(
+        return View(
             entity_state=measurement,
-            name=channel.display_name(),
-            unit=HA_UNITS[channel.units],
+            description=MeasurementDescription(
+                name=channel.display_name(), unit=HA_UNITS[channel.units]
+            ),
         )
 
-    def _describe(self, view: MeasurementView) -> None:
-        super()._describe(view)
-        self._attr_native_unit_of_measurement = view.unit
+    def _describe(self, description: MeasurementDescription) -> None:
+        super()._describe(description)
+        self._attr_native_unit_of_measurement = description.unit
 
     def _apply(self, entity_state: Measurement) -> None:
         self._attr_native_value = entity_state.value
@@ -424,13 +446,13 @@ class AlarmThreshold:
 
 
 @dataclass(frozen=True)
-class AlarmThresholdView(ChannelView[AlarmThreshold]):
-    """An alarm's threshold, and the unit it's in."""
+class AlarmThresholdDescription(ChannelDescription):
+    """A channel's name, and the unit its alarm threshold is in."""
 
     unit: str | None
 
 
-class AlarmThresholdSensor(ChannelSensor[AlarmThreshold]):
+class AlarmThresholdSensor(ChannelSensor[AlarmThreshold, AlarmThresholdDescription]):
     """Base class for Thermoworks channel alarm threshold sensors.
 
     Created when the channel has the alarm. The threshold is a setting, not a measurement,
@@ -445,22 +467,26 @@ class AlarmThresholdSensor(ChannelSensor[AlarmThreshold]):
         """Return the alarm this sensor shows."""
 
     @classmethod
-    def parse(cls, channel: ThermoworksChannel) -> AlarmThresholdView | None:
+    def parse(
+        cls, channel: ThermoworksChannel
+    ) -> View[AlarmThreshold, AlarmThresholdDescription] | None:
         alarm = cls._alarm(channel)
         if alarm is None:
             return None
-        return AlarmThresholdView(
+        return View(
             entity_state=AlarmThreshold(alarm.value, alarm.enabled, alarm.alarming),
-            name=channel.display_name(),
-            unit=HA_UNITS.get(alarm.units) if alarm.units is not None else None,
+            description=AlarmThresholdDescription(
+                name=channel.display_name(),
+                unit=HA_UNITS.get(alarm.units) if alarm.units is not None else None,
+            ),
         )
 
-    def _describe(self, view: AlarmThresholdView) -> None:
-        super()._describe(view)
-        self._attr_native_unit_of_measurement = view.unit
-        if view.unit in (UnitOfTemperature.FAHRENHEIT, UnitOfTemperature.CELSIUS):
+    def _describe(self, description: AlarmThresholdDescription) -> None:
+        super()._describe(description)
+        self._attr_native_unit_of_measurement = description.unit
+        if description.unit in (UnitOfTemperature.FAHRENHEIT, UnitOfTemperature.CELSIUS):
             self._attr_device_class = SensorDeviceClass.TEMPERATURE
-        elif view.unit == PERCENTAGE:
+        elif description.unit == PERCENTAGE:
             self._attr_device_class = SensorDeviceClass.HUMIDITY
         else:
             self._attr_device_class = None
@@ -484,9 +510,9 @@ class HighAlarmThresholdSensor(AlarmThresholdSensor):
     def _alarm(cls, channel: ThermoworksChannel) -> ThermoworksAlarm | None:
         return channel.alarm_high
 
-    def _describe(self, view: AlarmThresholdView) -> None:
-        super()._describe(view)
-        self._attr_name = f"{view.name} High Alarm Threshold"
+    def _describe(self, description: AlarmThresholdDescription) -> None:
+        super()._describe(description)
+        self._attr_name = f"{description.name} High Alarm Threshold"
 
 
 class LowAlarmThresholdSensor(AlarmThresholdSensor):
@@ -500,13 +526,13 @@ class LowAlarmThresholdSensor(AlarmThresholdSensor):
     def _alarm(cls, channel: ThermoworksChannel) -> ThermoworksAlarm | None:
         return channel.alarm_low
 
-    def _describe(self, view: AlarmThresholdView) -> None:
-        super()._describe(view)
-        self._attr_name = f"{view.name} Low Alarm Threshold"
+    def _describe(self, description: AlarmThresholdDescription) -> None:
+        super()._describe(description)
+        self._attr_name = f"{description.name} Low Alarm Threshold"
 
 
 # Every sensor type. Each is created for the sources on a device that have it.
-SENSORS: list[type[DeviceSensor | FanSensor | ChannelSensor]] = [
+SENSORS: list[type[DeviceSensor[Any] | FanSensor[Any, Any] | ChannelSensor[Any, Any]]] = [
     BatterySensor,
     SignalSensor,
     LastSeenSensor,

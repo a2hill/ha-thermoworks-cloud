@@ -12,16 +12,19 @@ Every entity follows the same rules:
 - `parse` returns None when the source doesn't have this entity at all (a device with no
   battery, a channel with no high alarm). Entities are only created where `parse` returns a
   view, and an existing entity whose source stops having it becomes unavailable.
-- A view has two parts. Its `entity_state` is each entity's own type holding what it
-  currently reads (the value and anything shown about it, like Home Assistant's state and
-  attributes), and is None when the source can't give one right now. The rest describes
-  what the entity is (name, unit, ...) and is always there, because Home Assistant shows
-  those even while an entity is unavailable. `_describe` gets every new view, and `_apply`
-  gets only an entity state that's there, so it never has to check for None.
+- A view has two parts, each its own type parameter of the entity. Its `entity_state` (`R`)
+  holds what the entity currently reads (the value and anything shown about it, like Home
+  Assistant's state and attributes), and is None when the source can't give one right now.
+  Its `description` (`D`) is what the entity is (name, unit, ...) and is always there,
+  because Home Assistant shows those even while an entity is unavailable. `_describe` gets
+  every new description, and `_apply` gets only an entity state that's there, so it never
+  has to check for None. Since the entity names both types, `parse` can't return a view
+  that doesn't match what `_describe` and `_apply` take.
 - An entity is unavailable when the coordinator update failed, its source is gone from the
   API, `parse` returned None, or its view has no entity state. It recovers on the next
-  update that has one. A stale entity state is never shown as current. Without a new view,
-  the last one is kept for the description.
+  update that has one. A stale entity state is never shown as current: anything `_apply`
+  sets that Home Assistant shows while unavailable (like an icon) is undone in
+  `_on_unavailable`. Without a new view, the last description is kept.
 - A value Home Assistant should show as unknown is part of the entity state, for entities
   where that happens (e.g. a fan that doesn't report whether it's connected).
 - Identity lives here. Entities are built from their source alone, and their ids are set
@@ -83,24 +86,26 @@ class Source(Protocol):
 
 
 @dataclass(frozen=True)
-class View[R]:
+class View[R, D]:
     """Contains the data that an entity parses from its source. Should contain only the 
     data that the entity needs to update its state."""
 
     # Contains the state required for an entity to be 'available' in HA terms. Will be None 
     # if the source is unavailable and can't give it right now
     entity_state: R | None
+    # What the entity is (name, unit, ...). None for entities described by class attributes alone.
+    description: D
 
 
 @dataclass(frozen=True)
-class ChannelView[R](View[R]):
-    """The data required for a channel entity."""
+class ChannelDescription:
+    """The description every channel entity has."""
 
-    # Every channel entity has a name and is named after its channel.
+    # Every channel entity is named after its channel.
     name: str
 
 
-class ThermoworksEntity[S: Source, R](CoordinatorEntity[ThermoworksCoordinator]):
+class ThermoworksEntity[S: Source, R, D = None](CoordinatorEntity[ThermoworksCoordinator]):
     """Base class for all entities of Thermoworks devices. Parses a view from its source on 
     every update."""
 
@@ -114,7 +119,7 @@ class ThermoworksEntity[S: Source, R](CoordinatorEntity[ThermoworksCoordinator])
         hass: HomeAssistant,
         coordinator: ThermoworksCoordinator,
         source: S,
-        view: View[R],
+        view: View[R, D],
     ) -> None:
         """Initialise the entity from a source and the view parsed from it.
 
@@ -155,7 +160,7 @@ class ThermoworksEntity[S: Source, R](CoordinatorEntity[ThermoworksCoordinator])
 
     @classmethod
     @abstractmethod
-    def parse(cls, source: S) -> View[R] | None:
+    def parse(cls, source: S) -> View[R, D] | None:
         """Parse this entities view of a source, or None if the source doesn't apply to this 
         entity type."""
 
@@ -177,35 +182,45 @@ class ThermoworksEntity[S: Source, R](CoordinatorEntity[ThermoworksCoordinator])
         """Information used by HA to link an entity to a device."""
         return DeviceInfo(identifiers={(DOMAIN, self._ha_device_identifier)})
 
-    def _describe(self, view: View[R]) -> None:
-        """Set the `_attr_*` values that describe the entity (name, unit, ...) from a view.
+    def _describe(self, description: D) -> None:
+        """Set the `_attr_*` values that describe the entity (name, unit, ...).
 
         Called with every new view, even one with no entity state, since Home Assistant
-        shows these while the entity is unavailable too. Subclasses narrow `view` to the
-        view type their `parse` returns. Entities whose description is all class
-        attributes don't override it.
+        shows these while the entity is unavailable too. Entities whose description is all
+        class attributes don't override it.
         """
 
     @abstractmethod
     def _apply(self, entity_state: R) -> None:
         """Set the `_attr_*` values Home Assistant shows as the state, from an entity state.
 
-        Only called when there is one, so it's never None here. When a later view has none,
-        the entity is unavailable and these values are left as they were, since Home
-        Assistant doesn't show them then.
+        Only called when there is one, so it's never None here. When the entity becomes
+        unavailable these values are left as they were, since Home Assistant doesn't show
+        the state or attributes then. Anything it does show is undone in `_on_unavailable`.
         """
 
-    def _update_from(self, view: View[R] | None) -> None:
+    def _on_unavailable(self) -> None:
+        """Undo anything `_apply` set that Home Assistant shows while unavailable.
+
+        Home Assistant still shows some values while an entity is unavailable, like its icon.
+        If `_apply` sets one of those, override this to reset it, so it doesn't show a
+        stale state. Called after every update that leaves the entity unavailable, for any
+        reason, so it must be safe to run more than once.
+        """
+
+    def _update_from(self, view: View[R, D] | None) -> None:
         """Apply a new view, or mark the entity unavailable if there isn't one.
 
         Without a view the last description is kept, since there's nothing newer.
         """
         self._has_entity_state = view is not None and view.entity_state is not None
-        if view is None:
-            return
-        self._describe(view)
-        if view.entity_state is not None:
-            self._apply(view.entity_state)
+        if view is not None:
+            self._describe(view.description)
+            if view.entity_state is not None:
+                self._apply(view.entity_state)
+        # Checked here rather than above, as a failed coordinator update also makes it unavailable
+        if not self.available:
+            self._on_unavailable()
 
     @property
     def available(self) -> bool:
@@ -223,7 +238,7 @@ class ThermoworksEntity[S: Source, R](CoordinatorEntity[ThermoworksCoordinator])
         self.async_write_ha_state()
 
 
-class ThermoworksDeviceEntity[R](ThermoworksEntity[ThermoworksDevice, R]):
+class ThermoworksDeviceEntity[R, D = None](ThermoworksEntity[ThermoworksDevice, R, D]):
     """An entity whose value comes from the device itself."""
 
     @classmethod
@@ -234,7 +249,9 @@ class ThermoworksDeviceEntity[R](ThermoworksEntity[ThermoworksDevice, R]):
         return device
 
 
-class ThermoworksChannelEntity[R](ThermoworksEntity[ThermoworksChannel, R]):
+class ThermoworksChannelEntity[R, D: ChannelDescription = ChannelDescription](
+    ThermoworksEntity[ThermoworksChannel, R, D]
+):
     """An entity whose value comes from one channel of a device."""
 
     def __init__(
@@ -242,7 +259,7 @@ class ThermoworksChannelEntity[R](ThermoworksEntity[ThermoworksChannel, R]):
         hass: HomeAssistant,
         coordinator: ThermoworksCoordinator,
         source: ThermoworksChannel,
-        view: ChannelView[R],
+        view: View[R, D],
     ) -> None:
         """Initialise the entity, remembering which channel it reads."""
         # Before super().__init__, which builds the ids from it
@@ -264,7 +281,7 @@ class ThermoworksChannelEntity[R](ThermoworksEntity[ThermoworksChannel, R]):
         return f"{DOMAIN}-{self._ha_device_identifier}-{self._channel_number}-{self.suffix}"
 
 
-class ThermoworksFanEntity[R](ThermoworksEntity[ThermoworksFan, R]):
+class ThermoworksFanEntity[R, D = None](ThermoworksEntity[ThermoworksFan, R, D]):
     """An entity whose value comes from a gateway's fan accessory."""
 
     @classmethod
