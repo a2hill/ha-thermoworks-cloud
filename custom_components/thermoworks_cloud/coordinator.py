@@ -99,7 +99,6 @@ class ThermoworksCoordinator(DataUpdateCoordinator[ThermoworksData]):
             # Method to call on every update interval.
             update_method=self.async_update_data,
             # Polling interval. Will only be polled if there are subscribers.
-            # Using config option here but you can just use a value.
             update_interval=timedelta(seconds=self.poll_interval),
         )
         client_session = async_get_clientsession(hass)
