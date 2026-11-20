@@ -1,6 +1,6 @@
 """Test the integration end to end, from the ThermoWorks HTTP API to Home Assistant states."""
 
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 from typing import Any
 
@@ -34,6 +34,19 @@ from tests.api_test_object import (
     GET_DEVICES_NULL_READING_RESPONSE,
     GET_DEVICES_NULL_UNITS_RESPONSE,
     GET_DEVICES_CHARGING_RESPONSE,
+    GET_DEVICES_NULL_BATTERY_RESPONSE,
+    GET_DEVICES_NO_DEVICES_RESPONSE,
+    GET_DEVICES_FAN_RESPONSE,
+    GET_DEVICES_NAMING_RESPONSE,
+    GET_DEVICES_DISTINCT_DEVICE_ID_RESPONSE,
+    GET_DEVICES_NO_DEVICE_ID_RESPONSE,
+    GET_DEVICES_ALARMS_RESPONSE,
+    GET_DEVICES_DISABLED_ALARM_RESPONSE,
+    GET_DEVICES_FAN_DISCONNECTED_RESPONSE,
+    GET_DEVICES_FAN_NO_STATE_RESPONSE,
+    GET_DEVICES_FAN_NO_CONNECTION_RESPONSE,
+    GET_DEVICES_UNLABELED_FAN_RESPONSE,
+    GET_DEVICES_UPDATED_DETAILS_RESPONSE,
     GET_DEVICES_NO_CHANNELS_RESPONSE,
     GET_DEVICES_DISABLED_CHANNEL_RESPONSE,
     GET_DEVICES_UNKNOWN_CHANNEL_METADATA_RESPONSE,
@@ -51,6 +64,13 @@ HIGH_THRESHOLD_ENTITY = "sensor.12_34_56_78_90_ab_ch_1_high_alarm_threshold"
 HIGH_ALARM_ENTITY = "binary_sensor.12_34_56_78_90_ab_ch_1_high_alarm"
 LOW_ALARM_ENTITY = "binary_sensor.12_34_56_78_90_ab_ch_1_low_alarm"
 BATTERY_ENTITY = "sensor.12_34_56_78_90_ab_battery"
+SIGNAL_ENTITY = "sensor.12_34_56_78_90_ab_signal"
+DEVICE_ENTITIES = (
+    BATTERY_ENTITY,
+    SIGNAL_ENTITY,
+    "sensor.12_34_56_78_90_ab_last_seen",
+    "sensor.12_34_56_78_90_ab_transmit_interval",
+)
 
 
 def _api_key_entry(hass: HomeAssistant) -> MockConfigEntry:
@@ -707,3 +727,446 @@ async def test_charging_battery_uses_the_charging_icon(
     state = hass.states.get(BATTERY_ENTITY)
     assert state is not None
     assert state.attributes.get("icon") == "mdi:battery-charging-100"
+
+
+async def test_lost_device_field_only_affects_its_entity(
+    hass: HomeAssistant,
+    api_test_object: ApiTestObject,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A device losing one value makes that entity unavailable without stalling the rest."""
+
+    # Setup
+    hass.config.units = US_CUSTOMARY_SYSTEM
+    entry = _api_key_entry(hass)
+    await _set_up(hass, entry)
+    api_test_object.respond_to_devices(body=GET_DEVICES_NULL_BATTERY_RESPONSE)
+
+    # Act
+    await _poll(hass)
+
+    # Assert
+    battery = hass.states.get(BATTERY_ENTITY)
+    assert battery is not None
+    assert battery.state == "unavailable"
+    # Entities updated after the battery sensor still get the new data
+    signal = hass.states.get(SIGNAL_ENTITY)
+    assert signal is not None
+    assert float(signal.state) == -70
+    temperature = hass.states.get(TEMPERATURE_ENTITY)
+    assert temperature is not None
+    assert float(temperature.state) == 5.0
+    assert "Unexpected error updating listener" not in caplog.text
+
+    # Recover using the same entity.
+    api_test_object.respond_to_devices(body=GET_DEVICES_RESPONSE)
+    await _poll(hass, DEFAULT_SCAN_INTERVAL_SECONDS * 2)
+    recovered = hass.states.get(BATTERY_ENTITY)
+    assert recovered is not None
+    assert float(recovered.state) == GET_DEVICES_RESPONSE["devices"][0]["battery"]
+
+
+async def test_missing_device_becomes_unavailable_and_recovers(
+    hass: HomeAssistant,
+    api_test_object: ApiTestObject,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A device the API stops returning must not keep showing its last values."""
+
+    # Setup
+    hass.config.units = US_CUSTOMARY_SYSTEM
+    entry = _api_key_entry(hass)
+    await _set_up(hass, entry)
+    api_test_object.respond_to_devices(body=GET_DEVICES_NO_DEVICES_RESPONSE)
+
+    # Act
+    await _poll(hass)
+
+    # Assert
+    for entity_id in (*DEVICE_ENTITIES, TEMPERATURE_ENTITY):
+        state = hass.states.get(entity_id)
+        assert state is not None
+        assert state.state == "unavailable", entity_id
+    assert "Unexpected error updating listener" not in caplog.text
+
+    # Recover using the same entities.
+    api_test_object.respond_to_devices(body=GET_DEVICES_RESPONSE)
+    await _poll(hass, DEFAULT_SCAN_INTERVAL_SECONDS * 2)
+    for entity_id in DEVICE_ENTITIES:
+        state = hass.states.get(entity_id)
+        assert state is not None
+        assert state.state != "unavailable", entity_id
+
+
+def _registered_device(hass: HomeAssistant, entry: MockConfigEntry, identifier: str):
+    """Return the device registry entry for an identifier."""
+    device = dr.async_get(hass).async_get_device_by_identifier(
+        (DOMAIN, identifier), config_entry_id=entry.entry_id
+    )
+    assert device is not None
+    return device
+
+
+async def test_devices_are_registered_with_their_details(
+    hass: HomeAssistant, api_test_object: ApiTestObject
+) -> None:
+    """Every device is registered with its details from the API."""
+
+    # Setup
+    entry = _api_key_entry(hass)
+    api_device = GET_DEVICES_RESPONSE["devices"][0]
+
+    # Act
+    await _set_up(hass, entry)
+
+    # Assert
+    device = _registered_device(hass, entry, dr.format_mac(TEST_SERIAL))
+    assert device.name == api_device["label"]
+    assert device.manufacturer == "ThermoWorks"
+    assert device.model == api_device["model"]
+    assert device.sw_version == api_device["firmware"]
+    assert device.serial_number == api_device["serial"]
+
+
+async def test_device_without_battery_is_still_named(
+    hass: HomeAssistant, api_test_object: ApiTestObject
+) -> None:
+    """A device's details don't depend on which entities it has."""
+
+    # Setup
+    entry = _api_key_entry(hass)
+    api_test_object.respond_to_devices(body=GET_DEVICES_NULL_BATTERY_RESPONSE)
+
+    # Act
+    await _set_up(hass, entry)
+
+    # Assert
+    assert hass.states.get(BATTERY_ENTITY) is None
+    device = _registered_device(hass, entry, dr.format_mac(TEST_SERIAL))
+    assert device.name == GET_DEVICES_RESPONSE["devices"][0]["label"]
+
+
+async def test_device_details_update_after_a_refresh(
+    hass: HomeAssistant, api_test_object: ApiTestObject
+) -> None:
+    """A rename or firmware update shows up without a reload, keeping the user's own name."""
+
+    # Setup
+    entry = _api_key_entry(hass)
+    await _set_up(hass, entry)
+    registry = dr.async_get(hass)
+    device = _registered_device(hass, entry, dr.format_mac(TEST_SERIAL))
+    registry.async_update_device(device.id, name_by_user="My freezer")
+    api_test_object.respond_to_devices(body=GET_DEVICES_UPDATED_DETAILS_RESPONSE)
+
+    # Act
+    await _poll(hass)
+
+    # Assert
+    updated = _registered_device(hass, entry, dr.format_mac(TEST_SERIAL))
+    assert updated.name == "Pantry"
+    assert updated.sw_version == "2.2.0"
+    assert updated.name_by_user == "My freezer"
+
+
+@pytest.mark.parametrize(
+    ("response", "fan_name"),
+    [
+        pytest.param(GET_DEVICES_FAN_RESPONSE, "Kitchen Fan", id="labeled"),
+        pytest.param(
+            GET_DEVICES_UNLABELED_FAN_RESPONSE,
+            f"unnamed device (node - {TEST_SERIAL}) Fan",
+            id="unlabeled",
+        ),
+    ],
+)
+async def test_fan_is_registered_under_its_gateway(
+    hass: HomeAssistant,
+    api_test_object: ApiTestObject,
+    response: dict[str, Any],
+    fan_name: str,
+) -> None:
+    """The fan accessory is its own device, named after and connected through its gateway."""
+
+    # Setup
+    entry = _api_key_entry(hass)
+    api_test_object.respond_to_devices(body=response)
+
+    # Act
+    await _set_up(hass, entry)
+
+    # Assert
+    gateway = _registered_device(hass, entry, dr.format_mac(TEST_SERIAL))
+    fan = _registered_device(hass, entry, f"{dr.format_mac(TEST_SERIAL)}-fan")
+    assert fan.name == fan_name
+    assert fan.via_device_id == gateway.id
+    fan_state = hass.states.get("sensor.12_34_56_78_90_ab_fan_state")
+    assert fan_state is not None
+    assert fan_state.state == "Blowing"
+
+
+async def test_last_seen_is_reported_in_utc(
+    hass: HomeAssistant, api_test_object: ApiTestObject
+) -> None:
+    """The API's last seen timestamp reaches the sensor as an aware UTC time."""
+
+    # Setup
+    entry = _api_key_entry(hass)
+
+    # Act
+    await _set_up(hass, entry)
+
+    # Assert
+    state = hass.states.get("sensor.12_34_56_78_90_ab_last_seen")
+    assert state is not None
+    # Home Assistant shows timestamps to the second
+    assert dt_util.parse_datetime(state.state) == datetime(
+        2026, 11, 4, 3, 54, 28, tzinfo=timezone.utc
+    )
+
+
+@pytest.mark.parametrize(
+    ("response", "expected"),
+    [
+        pytest.param(
+            GET_DEVICES_FAN_NO_STATE_RESPONSE,
+            {"binary_sensor.12_34_56_78_90_ab_fan_connected": "on",
+             "sensor.12_34_56_78_90_ab_fan_state": "unknown"},
+            id="no-fan-state",
+        ),
+        pytest.param(
+            GET_DEVICES_FAN_NO_CONNECTION_RESPONSE,
+            {"binary_sensor.12_34_56_78_90_ab_fan_connected": "unknown",
+             # Not known to be connected, so its values aren't shown as current
+             "sensor.12_34_56_78_90_ab_fan_state": "unavailable"},
+            id="no-fan-connection",
+        ),
+    ],
+)
+async def test_unreported_fan_values_are_unknown(
+    hass: HomeAssistant,
+    api_test_object: ApiTestObject,
+    response: dict[str, Any],
+    expected: dict[str, str],
+) -> None:
+    """A value the fan doesn't report is unknown, not unavailable."""
+
+    # Setup
+    entry = _api_key_entry(hass)
+    api_test_object.respond_to_devices(body=response)
+
+    # Act
+    await _set_up(hass, entry)
+
+    # Assert
+    for entity_id, value in expected.items():
+        state = hass.states.get(entity_id)
+        assert state is not None, entity_id
+        assert state.state == value, entity_id
+
+
+
+async def test_every_entity_attaches_to_a_registered_device(
+    hass: HomeAssistant, api_test_object: ApiTestObject
+) -> None:
+    """Entities and device registration agree on identifiers.
+
+    An entity attaching to an identifier that wasn't registered would get an empty device
+    with no name, so check the result rather than how identifiers are built.
+    """
+
+    # Setup
+    entry = _api_key_entry(hass)
+    api_test_object.respond_to_devices(body=GET_DEVICES_FAN_RESPONSE)
+
+    # Act
+    await _set_up(hass, entry)
+
+    # Assert
+    devices = dr.async_get(hass)
+    entities = er.async_entries_for_config_entry(er.async_get(hass), entry.entry_id)
+    assert any(entity.unique_id.endswith("-fan-state") for entity in entities)
+    for entity in entities:
+        assert entity.device_id is not None, entity.entity_id
+        device = devices.async_get(entity.device_id)
+        assert device is not None, entity.entity_id
+        # The scan interval number is on the config entry's own service device
+        if device.entry_type is dr.DeviceEntryType.SERVICE:
+            continue
+        assert device.manufacturer == "ThermoWorks", entity.entity_id
+        assert device.name is not None, entity.entity_id
+
+
+async def test_channel_entities_are_named_after_their_channel(
+    hass: HomeAssistant, api_test_object: ApiTestObject
+) -> None:
+    """Channel entity names come from the channel label, with a fallback when it's missing."""
+
+    # Setup
+    hass.config.units = US_CUSTOMARY_SYSTEM
+    entry = _api_key_entry(hass)
+    api_test_object.respond_to_devices(body=GET_DEVICES_NAMING_RESPONSE)
+    expected = {
+        # Measurement names are capitalized, the alarm names keep the label as it is
+        "sensor.12_34_56_78_90_ab_ch_1_temperature": "Pork shoulder (ch. 1)",
+        "sensor.12_34_56_78_90_ab_ch_2_humidity": "Dry box (ch. 2)",
+        "sensor.12_34_56_78_90_ab_ch_1_high_alarm_threshold":
+            "PORK Shoulder (Ch. 1) High Alarm Threshold",
+        "binary_sensor.12_34_56_78_90_ab_ch_1_high_alarm": "PORK Shoulder (Ch. 1) High Alarm",
+        "sensor.12_34_56_78_90_ab_ch_3_temperature": "Unnamed channel (ch. 3)",
+        "sensor.12_34_56_78_90_ab_ch_4_temperature": "Unnamed channel (ch. 4)",
+        "sensor.12_34_56_78_90_ab_ch_3_high_alarm_threshold":
+            "unnamed channel (Ch. 3) High Alarm Threshold",
+        "binary_sensor.12_34_56_78_90_ab_ch_4_high_alarm": "unnamed channel (Ch. 4) High Alarm",
+    }
+
+    # Act
+    await _set_up(hass, entry)
+
+    # Assert
+    device_name = GET_DEVICES_RESPONSE["devices"][0]["label"]
+    for entity_id, name in expected.items():
+        state = hass.states.get(entity_id)
+        assert state is not None, entity_id
+        assert state.attributes["friendly_name"] == f"{device_name} {name}", entity_id
+
+
+@pytest.mark.parametrize(
+    ("response", "ha_device_identifier"),
+    [
+        pytest.param(
+            GET_DEVICES_DISTINCT_DEVICE_ID_RESPONSE, "aa:bb:cc:dd:ee:ff", id="device-id"
+        ),
+        pytest.param(
+            GET_DEVICES_NO_DEVICE_ID_RESPONSE, dr.format_mac(TEST_SERIAL), id="serial"
+        ),
+    ],
+)
+async def test_entity_identity_prefers_device_id_over_serial(
+    hass: HomeAssistant,
+    api_test_object: ApiTestObject,
+    response: dict[str, Any],
+    ha_device_identifier: str,
+) -> None:
+    """Devices and unique ids use the device id, falling back to the serial without one."""
+
+    # Setup
+    entry = _api_key_entry(hass)
+    api_test_object.respond_to_devices(body=response)
+
+    # Act
+    await _set_up(hass, entry)
+
+    # Assert
+    _registered_device(hass, entry, ha_device_identifier)
+    _registered_device(hass, entry, f"{ha_device_identifier}-fan")
+    unique_ids = {
+        entity.unique_id
+        for entity in er.async_entries_for_config_entry(er.async_get(hass), entry.entry_id)
+    }
+    assert {
+        f"{DOMAIN}-{ha_device_identifier}",
+        f"{DOMAIN}-{ha_device_identifier}-1",
+        f"{DOMAIN}-{ha_device_identifier}-fan-state",
+    } <= unique_ids
+
+
+async def test_alarms_show_thresholds_and_whether_they_are_going_off(
+    hass: HomeAssistant, api_test_object: ApiTestObject
+) -> None:
+    """Each alarm has a threshold sensor and a binary sensor for whether it's going off."""
+
+    # Setup
+    hass.config.units = US_CUSTOMARY_SYSTEM
+    entry = _api_key_entry(hass)
+    api_test_object.respond_to_devices(body=GET_DEVICES_ALARMS_RESPONSE)
+
+    # Act
+    await _set_up(hass, entry)
+
+    # Assert
+    high_threshold = hass.states.get(HIGH_THRESHOLD_ENTITY)
+    assert high_threshold is not None
+    assert float(high_threshold.state) == 20
+    assert high_threshold.attributes["unit_of_measurement"] == "°F"
+    assert high_threshold.attributes["enabled"] is True
+    assert high_threshold.attributes["alarming"] is False
+    high_alarm = hass.states.get(HIGH_ALARM_ENTITY)
+    assert high_alarm is not None
+    assert high_alarm.state == "off"
+    low_alarm = hass.states.get(LOW_ALARM_ENTITY)
+    assert low_alarm is not None
+    assert low_alarm.state == "on"
+    assert low_alarm.attributes["enabled"] is True
+    assert low_alarm.attributes["value"] == -12
+    assert low_alarm.attributes["units"] == "F"
+
+
+async def test_disabled_alarm_is_not_active(
+    hass: HomeAssistant, api_test_object: ApiTestObject
+) -> None:
+    """A disabled alarm isn't a problem, even if the API says it's alarming."""
+
+    # Setup
+    entry = _api_key_entry(hass)
+    api_test_object.respond_to_devices(body=GET_DEVICES_DISABLED_ALARM_RESPONSE)
+
+    # Act
+    await _set_up(hass, entry)
+
+    # Assert
+    high_alarm = hass.states.get(HIGH_ALARM_ENTITY)
+    assert high_alarm is not None
+    assert high_alarm.state == "off"
+
+
+async def test_fan_shows_its_values_while_connected(
+    hass: HomeAssistant, api_test_object: ApiTestObject
+) -> None:
+    """A connected fan shows its state and set temperature in the gateway's units."""
+
+    # Setup
+    hass.config.units = US_CUSTOMARY_SYSTEM
+    entry = _api_key_entry(hass)
+    api_test_object.respond_to_devices(body=GET_DEVICES_FAN_RESPONSE)
+
+    # Act
+    await _set_up(hass, entry)
+
+    # Assert
+    connected = hass.states.get("binary_sensor.12_34_56_78_90_ab_fan_connected")
+    assert connected is not None
+    assert connected.state == "on"
+    fan_state = hass.states.get("sensor.12_34_56_78_90_ab_fan_state")
+    assert fan_state is not None
+    assert fan_state.state == "Blowing"
+    set_temperature = hass.states.get("sensor.12_34_56_78_90_ab_fan_set_temperature")
+    assert set_temperature is not None
+    assert float(set_temperature.state) == 275
+    assert set_temperature.attributes["unit_of_measurement"] == "°F"
+
+
+async def test_disconnected_fan_values_are_unavailable(
+    hass: HomeAssistant, api_test_object: ApiTestObject
+) -> None:
+    """A disconnected fan's last values aren't shown as current."""
+
+    # Setup
+    entry = _api_key_entry(hass)
+    api_test_object.respond_to_devices(body=GET_DEVICES_FAN_DISCONNECTED_RESPONSE)
+
+    # Act
+    await _set_up(hass, entry)
+
+    # Assert
+    connected = hass.states.get("binary_sensor.12_34_56_78_90_ab_fan_connected")
+    assert connected is not None
+    assert connected.state == "off"
+    for entity_id in (
+        "sensor.12_34_56_78_90_ab_fan_state",
+        "sensor.12_34_56_78_90_ab_fan_set_temperature",
+    ):
+        state = hass.states.get(entity_id)
+        assert state is not None, entity_id
+        assert state.state == "unavailable", entity_id
+
