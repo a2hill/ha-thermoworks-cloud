@@ -194,5 +194,8 @@ GET_DEVICES_DISABLED_ALARM_RESPONSE = deepcopy(GET_DEVICES_RESPONSE)
 GET_DEVICES_DISABLED_ALARM_RESPONSE["devices"][0]["channels"][0]["alarmHigh"] = {
     "enabled": False, "value": 20, "alarming": True, "units": "F",
 }
+# The gateway stops reporting which temperature unit it displays
+GET_DEVICES_FAN_NO_DISPLAY_UNITS_RESPONSE = deepcopy(GET_DEVICES_FAN_RESPONSE)
+GET_DEVICES_FAN_NO_DISPLAY_UNITS_RESPONSE["devices"][0]["displayUnits"] = None
 GET_DEVICES_FAN_DISCONNECTED_RESPONSE = deepcopy(GET_DEVICES_FAN_RESPONSE)
 GET_DEVICES_FAN_DISCONNECTED_RESPONSE["devices"][0]["fan"]["connected"] = False

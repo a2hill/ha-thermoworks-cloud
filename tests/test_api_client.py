@@ -43,6 +43,7 @@ from tests.api_test_object import (
     GET_DEVICES_ALARMS_RESPONSE,
     GET_DEVICES_DISABLED_ALARM_RESPONSE,
     GET_DEVICES_FAN_DISCONNECTED_RESPONSE,
+    GET_DEVICES_FAN_NO_DISPLAY_UNITS_RESPONSE,
     GET_DEVICES_FAN_NO_STATE_RESPONSE,
     GET_DEVICES_FAN_NO_CONNECTION_RESPONSE,
     GET_DEVICES_UNLABELED_FAN_RESPONSE,
@@ -581,6 +582,9 @@ async def test_missing_channel_becomes_unavailable_and_recovers(
         state = hass.states.get(entity_id)
         assert state is not None
         assert state.state == "unavailable"
+        # Units stay as they were, so HA doesn't see a unit change
+        if entity_id != HIGH_ALARM_ENTITY:
+            assert state.attributes["unit_of_measurement"] == "°F", entity_id
     assert "Unexpected error updating listener" not in caplog.text
 
     # Recover using the same entities.
@@ -1102,6 +1106,27 @@ async def test_alarms_show_thresholds_and_whether_they_are_going_off(
     assert low_alarm.attributes["units"] == "F"
 
 
+async def test_threshold_is_in_its_channels_unit(
+    hass: HomeAssistant, api_test_object: ApiTestObject
+) -> None:
+    """The API reports units on the channel, not the alarm, so thresholds use the channel's."""
+
+    # Setup
+    hass.config.units = US_CUSTOMARY_SYSTEM
+    entry = _api_key_entry(hass)
+    api_test_object.respond_to_devices(body=GET_DEVICES_RESPONSE)
+
+    # Act
+    await _set_up(hass, entry)
+
+    # Assert
+    high_threshold = hass.states.get(HIGH_THRESHOLD_ENTITY)
+    assert high_threshold is not None
+    assert float(high_threshold.state) == 20
+    assert high_threshold.attributes["unit_of_measurement"] == "°F"
+    assert high_threshold.attributes["device_class"] == "temperature"
+
+
 async def test_disabled_alarm_is_not_active(
     hass: HomeAssistant, api_test_object: ApiTestObject
 ) -> None:
@@ -1144,6 +1169,29 @@ async def test_fan_shows_its_values_while_connected(
     assert set_temperature is not None
     assert float(set_temperature.state) == 275
     assert set_temperature.attributes["unit_of_measurement"] == "°F"
+
+
+async def test_fan_set_temperature_keeps_its_unit_when_the_gateway_stops_reporting_it(
+    hass: HomeAssistant, api_test_object: ApiTestObject
+) -> None:
+    """Without a unit the set temperature is unavailable, not a plain number in a new unit."""
+
+    # Setup
+    hass.config.units = US_CUSTOMARY_SYSTEM
+    entry = _api_key_entry(hass)
+    api_test_object.respond_to_devices(body=GET_DEVICES_FAN_RESPONSE)
+    await _set_up(hass, entry)
+    api_test_object.respond_to_devices(body=GET_DEVICES_FAN_NO_DISPLAY_UNITS_RESPONSE)
+
+    # Act
+    await _poll(hass)
+
+    # Assert
+    set_temperature = hass.states.get("sensor.12_34_56_78_90_ab_fan_set_temperature")
+    assert set_temperature is not None
+    assert set_temperature.state == "unavailable"
+    assert set_temperature.attributes["unit_of_measurement"] == "°F"
+    assert set_temperature.attributes["device_class"] == "temperature"
 
 
 async def test_disconnected_fan_values_are_unavailable(

@@ -284,9 +284,9 @@ class FanSetpoint:
 
 @dataclass(frozen=True)
 class FanSetTemperatureDescription:
-    """The temperature unit the device displays, None if it isn't one HA knows."""
+    """The temperature unit the gateway displays, which the fan's set temperature is in."""
 
-    unit: str | None
+    unit: str
 
 
 class FanSetTemperatureSensor(FanSensor[FanSetpoint, FanSetTemperatureDescription]):
@@ -294,28 +294,29 @@ class FanSetTemperatureSensor(FanSensor[FanSetpoint, FanSetTemperatureDescriptio
 
     suffix = "set-temperature"
 
+    _attr_device_class = SensorDeviceClass.TEMPERATURE
     _attr_suggested_display_precision = 0
     _attr_translation_key = "fan_set_temperature"
 
     @classmethod
-    def parse(cls, fan: ThermoworksFan) -> View[FanSetpoint, FanSetTemperatureDescription]:
+    def parse(
+        cls, fan: ThermoworksFan
+    ) -> View[FanSetpoint, FanSetTemperatureDescription] | None:
+        # Without a temperature unit the set temperature can't be shown correctly. An
+        # existing entity becomes unavailable and keeps its last unit, rather than
+        # switching to a plain number, which HA would treat as a unit change.
         unit = fan.display_units
+        if unit is None or unit not in TEMPERATURE_UNITS:
+            return None
         return View(
             entity_state=(
                 FanSetpoint(fan.set_temp, fan.fan_channel) if fan.connected is True else None
             ),
-            description=FanSetTemperatureDescription(
-                # A number without a known temperature unit is shown as a plain number
-                unit=HA_UNITS[unit] if unit in TEMPERATURE_UNITS else None,
-            ),
+            description=FanSetTemperatureDescription(unit=HA_UNITS[unit]),
         )
 
     def _describe(self, description: FanSetTemperatureDescription) -> None:
         self._attr_native_unit_of_measurement = description.unit
-        # Only a temperature when the API reports a temperature unit
-        self._attr_device_class = (
-            SensorDeviceClass.TEMPERATURE if description.unit is not None else None
-        )
 
     def _apply(self, entity_state: FanSetpoint) -> None:
         self._attr_native_value = entity_state.temperature
@@ -449,7 +450,7 @@ class AlarmThreshold:
 class AlarmThresholdDescription(ChannelDescription):
     """A channel's name, and the unit its alarm threshold is in."""
 
-    unit: str | None
+    unit: str
 
 
 class AlarmThresholdSensor(ChannelSensor[AlarmThreshold, AlarmThresholdDescription]):
@@ -473,23 +474,28 @@ class AlarmThresholdSensor(ChannelSensor[AlarmThreshold, AlarmThresholdDescripti
         alarm = cls._alarm(channel)
         if alarm is None:
             return None
+        # The ThermoWorks API reports the unit on the channel, not on each alarm. A threshold
+        # is compared with its channel's reading, so it's in the same unit.
+        units = alarm.units or channel.units
+        if units is None:
+            # Not a unit HA knows. Like the measurement sensors, there's no entity, and an
+            # existing one becomes unavailable and keeps its last unit.
+            return None
         return View(
             entity_state=AlarmThreshold(alarm.value, alarm.enabled, alarm.alarming),
             description=AlarmThresholdDescription(
-                name=channel.display_name(),
-                unit=HA_UNITS.get(alarm.units) if alarm.units is not None else None,
+                name=channel.display_name(), unit=HA_UNITS[units]
             ),
         )
 
     def _describe(self, description: AlarmThresholdDescription) -> None:
         super()._describe(description)
         self._attr_native_unit_of_measurement = description.unit
-        if description.unit in (UnitOfTemperature.FAHRENHEIT, UnitOfTemperature.CELSIUS):
-            self._attr_device_class = SensorDeviceClass.TEMPERATURE
-        elif description.unit == PERCENTAGE:
-            self._attr_device_class = SensorDeviceClass.HUMIDITY
-        else:
-            self._attr_device_class = None
+        self._attr_device_class = (
+            SensorDeviceClass.HUMIDITY
+            if description.unit == PERCENTAGE
+            else SensorDeviceClass.TEMPERATURE
+        )
 
     def _apply(self, entity_state: AlarmThreshold) -> None:
         self._attr_native_value = entity_state.value
