@@ -98,19 +98,20 @@ class View[R, D]:
     """
 
     # Values from the source which are used to determine the current state of the 
-    # entity. Examples:
+    # entity, and anything shown with it, like attributes or a charging icon. Examples:
     # * For a temperature sensor entity, the currently measured temperature
-    # * For a binary sensor (like the FannConnected sensor), the connection state
-    # This property can be `None` when the entity exists but has nothing current to 
-    # report (a failed probe, a disconnected fan). Doing so will make the entity 
-    # `unavailable` in the HA UI. If its possible for the source to report a partial 
-    # state, prefer to make values optional within this state as HA will mark un-set entity
-    # attributes as `unknown`
+    # * For a binary sensor (like FanConnectedSensor), the connection state
+    # This property can be `None` when the entity exists but has nothing current to
+    # report (a failed probe, a disconnected fan). Doing so will make the entity
+    # `unavailable` in the HA UI. If it's possible for the source to report a partial
+    # state, prefer optional fields within the state. Passing a None value to HA shows
+    # the state as `unknown`.
     entity_state: R | None
     # Values from the source that are related to the existence of the entity,
-    # regardless of its current state. Examples: its name, unit or device class. 
-    # It must be known without a reading, so never put reading values here. Use None (the entity's
-    # default) when class attributes like `_attr_device_class` describe it fully.
+    # regardless of its current state. Examples: its name, unit or device class.
+    # It must be known without a reading, so never put reading values here. When class
+    # attributes like `_attr_device_class` describe the entity fully, leave `D` as its
+    # default, `None`, and pass `description=None`.
     description: D
 
 
