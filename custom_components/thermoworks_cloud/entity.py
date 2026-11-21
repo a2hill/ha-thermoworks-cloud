@@ -87,24 +87,29 @@ class Source(Protocol):
 
 @dataclass(frozen=True)
 class View[R, D]:
-    """Everything an entity shows, parsed from its source by the entity's `parse`.
+    """Everything an entity shows, parsed from its source by the entity's `parse` method.
 
-    A device reports two kinds of data: its configuration (channel names, display units,
-    which alarms are set), which is known even when it has nothing to measure, and its
-    live readings, which come and go as probes are plugged in or fans connect. A view
-    keeps them apart so an entity can be known but unavailable, like a probe that isn't
-    plugged in yet. To decide where a value goes, ask whether it would be wrong to show
-    once it's out of date. If so, it belongs in the entity state.
+    A Thermoworks device reports two kinds of data: its configuration (channel names, 
+    display units, which alarms are set), which is known even when it has nothing to 
+    measure, and its live readings, which come and go as probes are plugged in or fans 
+    connect. This class provides a means of separating that data so an entity can be 
+    displayed in HA even if its actual functionality (like measuring temperature) is 
+    not available. For instance, an RFX probe that isn't in use.
     """
 
-    # Values from the live reading: the HA state, attributes, and anything else that depends
-    # on it, like a charging icon. None when the source exists but has nothing current to
-    # report (a failed probe, a disconnected fan), which makes the entity unavailable. If
-    # the reading is current but leaves out one value, keep the state and set that field to
-    # None instead, so HA shows that value as unknown.
+    # Values from the source which are used to determine the current state of the 
+    # entity. Examples:
+    # * For a temperature sensor entity, the currently measured temperature
+    # * For a binary sensor (like the FannConnected sensor), the connection state
+    # This property can be `None` when the entity exists but has nothing current to 
+    # report (a failed probe, a disconnected fan). Doing so will make the entity 
+    # `unavailable` in the HA UI. If its possible for the source to report a partial 
+    # state, prefer to make values optional within this state as HA will mark un-set entity
+    # attributes as `unknown`
     entity_state: R | None
-    # What the entity is, from configuration: its name, unit or device class. It must be
-    # known without a reading, so never put reading values here. Use None (the entity's
+    # Values from the source that are related to the existence of the entity,
+    # regardless of its current state. Examples: its name, unit or device class. 
+    # It must be known without a reading, so never put reading values here. Use None (the entity's
     # default) when class attributes like `_attr_device_class` describe it fully.
     description: D
 
