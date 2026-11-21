@@ -1,58 +1,32 @@
-"""Base entities that read everything they show from a view parsed out of the coordinator data.
+"""Base classes for every Thermoworks entity.
 
-Every entity follows the same rules:
+How an entity works:
 
-- Each entity has a source: a parsed device, one of its channels, or its fan accessory. On each
-  coordinator update it looks up its device and picks its source from it, then passes the
-  source to its own `parse` method. `parse` returns a view: a small frozen dataclass holding
-  everything the entity shows, so each entity's dependencies are written down in one place.
-- Entities don't implement Home Assistant's properties. They set its `_attr_*` values from
-  the view in `_describe` and `_apply`, which the base class calls at the right times. So an
-  entity doesn't need to know when Home Assistant reads which property.
-- `parse` returns None when the source doesn't have this entity at all (a device with no
-  battery, a channel with no high alarm). Entities are only created where `parse` returns a
-  view, and an existing entity whose source stops having it becomes unavailable.
-- A view has two parts, each its own type parameter of the entity. Its `entity_state` (`R`)
-  holds what the entity currently reads (the value and anything shown about it, like Home
-  Assistant's state and attributes), and is None when the source can't give one right now.
-  Its `description` (`D`) is what the entity is (name, unit, ...) and is always there,
-  because Home Assistant shows those even while an entity is unavailable. `_describe` gets
-  every new description, and `_apply` gets only an entity state that's there, so it never
-  has to check for None. Since the entity names both types, `parse` can't return a view
-  that doesn't match what `_describe` and `_apply` take.
-- An entity is unavailable when the coordinator update failed, its source is gone from the
-  API, `parse` returned None, or its view has no entity state. It recovers on the next
-  update that has one. A stale entity state is never shown as current: anything `_apply`
-  sets that Home Assistant shows while unavailable (like an icon) is undone in
-  `_on_unavailable`. Without a new view, the last description is kept.
-- A value Home Assistant should show as unknown is part of the entity state, for entities
-  where that happens (e.g. a fan that doesn't report whether it's connected).
-- Identity lives here. Entities are built from their source alone, and their ids are set
-  in `__init__`, never by entities themselves.
+1. `sources` picks what on a device could have the entity: the device itself, each channel,
+   or its fan.
+2. `parse` turns a source into a `View`, or None if the source doesn't have the entity.
+   Entities are only created where it returns a view. See `View` for what goes in one.
+3. The base class sets Home Assistant's `_attr_*` values from the view through `_describe`
+   and `_apply`. Entities never implement Home Assistant's properties, so they don't need to
+   know when it reads which one.
+4. On every coordinator update, the entity finds its source again with `_select`, repeats
+   steps 2 and 3, and writes its state.
 
-Identifiers, Home Assistant's first and then ours:
+An entity is unavailable when the coordinator update failed, its source is gone, `parse`
+returned None, or the view has no entity state. It recovers on the next update that has one.
 
-- `unique_id`: the key Home Assistant's entity registry stores an entity under. Never shown.
+Nothing here may raise: an exception in a coordinator listener skips that entity's state
+write and leaves its last value showing as available.
+
+Ids are set here, never by entities (`device_key` and `ha_device_identifier` are on `Source`):
+
+- `unique_id`, `{DOMAIN}-{ha_device_identifier}-{suffix}`: the entity registry's key.
   Changing it orphans the entity, so existing formats can't change.
-- `entity_id`: what users see and can rename, e.g. `sensor.abc123_last_seen`. We only
-  suggest it, when the entity is created.
-- object id: Home Assistant's name for the part of the `entity_id` after the platform. We
-  suggest one, and Home Assistant adds `_2` etc. if it's taken.
-- device identifiers: `DeviceInfo(identifiers={(DOMAIN, x)})`, how a device is found in
-  Home Assistant's device registry.
-- `device_key`: the device's `device_id`, or its serial, and its key in
-  `ThermoworksData.devices`. Every source carries its device's, so its entities can find it.
-  Object ids start with it.
-- `ha_device_identifier`: the `x` above, for the device a source's entities attach to,
-  registered in `__init__.py`. Unique ids start with it.
+- `entity_id`, `{platform}.{device_key}_{suffix}`: only suggested when the entity is created.
+  Home Assistant adds `_2` if it's taken, and users can rename it.
 
-The default ids are `{device_key}_{suffix}` and `{DOMAIN}-{ha_device_identifier}-{suffix}`.
-A class whose ids were created in another format overrides `_suggested_object_id` or
-`_unique_id` to return it.
-
-State is written on every update so availability changes always reach Home Assistant.
-Nothing here raises: an exception from a listener would skip that entity's state write and
-leave it showing its last value as available.
+A class whose ids were created in another format overrides `_unique_id` or
+`_suggested_object_id`.
 """
 
 from abc import abstractmethod
