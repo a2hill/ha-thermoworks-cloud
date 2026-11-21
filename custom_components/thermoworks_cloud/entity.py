@@ -139,7 +139,7 @@ class ThermoworksEntity[S: Source, R, D = None](CoordinatorEntity[ThermoworksCoo
     ) -> None:
         """Initialise the entity from a source and the view parsed from it.
 
-        While you can construct entities directly, the `build` method is provided for convenience
+        While you can construct entities directly, the `build` method is provided for convenience.
         """
         super().__init__(coordinator)
         self._device_key = source.device_key
@@ -176,15 +176,18 @@ class ThermoworksEntity[S: Source, R, D = None](CoordinatorEntity[ThermoworksCoo
     @classmethod
     @abstractmethod
     def parse(cls, source: S) -> View[R, D] | None:
-        """Parse this entities view of a source, or None if the source doesn't apply to this 
-        entity type."""
+        """Parse this entity's view of a source.
+
+        Return None if the source doesn't have this entity, or a view with no entity state
+        if it does but has no current reading.
+        """
 
     def _suggested_object_id(self) -> str:
-        """Return the object id to suggest for use in the the entity id, e.g. "abc123_last_seen".
+        """Return the object id to suggest for use in the entity id, e.g. "abc123_last_seen".
 
-        Entity ids were previously based off of the device key rather than the
-        `ha_device_identifier`. Continue to use the device key for new entities to avoid
-        orphaning existing ones.
+        Entity ids have always started with the device key, not the `ha_device_identifier`.
+        New entities keep that pattern so they match the existing ones on a device. Changing
+        it wouldn't affect existing entities, since the registry keeps their ids.
         """
         return f"{self._device_key}_{self.suffix}"
 
@@ -291,8 +294,8 @@ class ThermoworksChannelEntity[R, D: ChannelDescription = ChannelDescription](
         return f"{self._device_key}_ch_{self._channel_number}_{self.suffix}"
 
     def _unique_id(self) -> str:
-        # Without the "ch" the object id has, as channel unique ids were initiall 
-        # created with a different scheme and changing them now would orphan exsiting entities.
+        # Without the "ch" the object id has, as channel unique ids were initially
+        # created with a different scheme and changing them now would orphan existing entities.
         return f"{DOMAIN}-{self._ha_device_identifier}-{self._channel_number}-{self.suffix}"
 
 
