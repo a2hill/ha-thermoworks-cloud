@@ -163,7 +163,7 @@ class ThermoworksEntity[S: Source, R, D = None](CoordinatorEntity[ThermoworksCoo
     @classmethod
     @abstractmethod
     def sources(cls, device: ThermoworksDevice) -> Iterable[S]:
-        """Return the sources on the device that could have this entity type.
+        """Return only the sources from the device object that could have this entity type.
         
         A device might have multiple sources such as channels or accessories (like a fan) for a 
         given entity type.
@@ -171,7 +171,7 @@ class ThermoworksEntity[S: Source, R, D = None](CoordinatorEntity[ThermoworksCoo
 
     @abstractmethod
     def _select(self, device: ThermoworksDevice) -> S | None:
-        """Return this entity's source from its device, or None if it's gone."""
+        """Return this entity's source from the device object, or None if it's gone."""
 
     @classmethod
     @abstractmethod
@@ -200,14 +200,17 @@ class ThermoworksEntity[S: Source, R, D = None](CoordinatorEntity[ThermoworksCoo
     def _describe(self, description: D) -> None:
         """Set the `_attr_*` values that describe the entity (name, unit, ...).
 
-        Called with every new view, even one with no entity state, since Home Assistant
-        shows these while the entity is unavailable too. Entities whose description is all
-        class attributes don't override it.
+        Called with the description from every parsed view, even when the entity is not available
+        since Home Assistant still displays descriptions for unavailable entities. Entities whose 
+        description is all class attributes shouldn't override it.
         """
 
     @abstractmethod
     def _apply(self, entity_state: R) -> None:
-        """Use the entity_state to set this entity's `_attr_*` values."""
+        """Use the entity_state to set this entity's `_attr_*` values.
+
+        Only called when `parse` returns a `View` containing an `entity_state`
+        """
 
     def _on_unavailable(self) -> None:
         """Undo anything `_apply` set that Home Assistant shows while unavailable.
@@ -288,7 +291,8 @@ class ThermoworksChannelEntity[R, D: ChannelDescription = ChannelDescription](
         return f"{self._device_key}_ch_{self._channel_number}_{self.suffix}"
 
     def _unique_id(self) -> str:
-        # Without the "ch" the object id has, as channel unique ids were created
+        # Without the "ch" the object id has, as channel unique ids were initiall 
+        # created with a different scheme and changing them now would orphan exsiting entities.
         return f"{DOMAIN}-{self._ha_device_identifier}-{self._channel_number}-{self.suffix}"
 
 
@@ -303,6 +307,6 @@ class ThermoworksFanEntity[R, D = None](ThermoworksEntity[ThermoworksFan, R, D])
         return device.fan
 
     def _suggested_object_id(self) -> str:
-        # The device key is the gateway's. The default unique id needs no "fan", since the
-        # fan's `ha_device_identifier` already ends in "-fan".
+        # The device key is the gateway's device key. The default unique id needs no 
+        # "fan", since the fan's `ha_device_identifier` already ends in "-fan".
         return f"{self._device_key}_fan_{self.suffix}"
