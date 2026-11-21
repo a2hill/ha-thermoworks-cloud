@@ -93,7 +93,8 @@ class View[R, D]:
     # Contains the state required for an entity to be 'available' in HA terms. Will be None 
     # if the source is unavailable and can't give it right now
     entity_state: R | None
-    # What the entity is (name, unit, ...). None for entities described by class attributes alone.
+    # Contains the properties required for the entity to be displayed in HA. These properties
+    # will be displayed regardless of whether the entity is 'available' or not
     description: D
 
 
@@ -123,8 +124,7 @@ class ThermoworksEntity[S: Source, R, D = None](CoordinatorEntity[ThermoworksCoo
     ) -> None:
         """Initialise the entity from a source and the view parsed from it.
 
-        Taking the view means an entity can't be created for a source it doesn't apply to,
-        so the constructor always succeeds. `build` parses the view for you.
+        While you can construct entities directly, the `build` method is provided for convenience
         """
         super().__init__(coordinator)
         self._device_key = source.device_key
@@ -192,20 +192,15 @@ class ThermoworksEntity[S: Source, R, D = None](CoordinatorEntity[ThermoworksCoo
 
     @abstractmethod
     def _apply(self, entity_state: R) -> None:
-        """Set the `_attr_*` values Home Assistant shows as the state, from an entity state.
-
-        Only called when there is one, so it's never None here. When the entity becomes
-        unavailable these values are left as they were, since Home Assistant doesn't show
-        the state or attributes then. Anything it does show is undone in `_on_unavailable`.
-        """
+        """Use the entity_state to set this entity's `_attr_*` values."""
 
     def _on_unavailable(self) -> None:
         """Undo anything `_apply` set that Home Assistant shows while unavailable.
 
         Home Assistant still shows some values while an entity is unavailable, like its icon.
         If `_apply` sets one of those, override this to reset it, so it doesn't show a
-        stale state. Called after every update that leaves the entity unavailable, for any
-        reason, so it must be safe to run more than once.
+        stale state. Called after every update that leaves the entity unavailable so it 
+        must be safe to run more than once.
         """
 
     def _update_from(self, view: View[R, D] | None) -> None:
@@ -224,7 +219,8 @@ class ThermoworksEntity[S: Source, R, D = None](CoordinatorEntity[ThermoworksCoo
 
     @property
     def available(self) -> bool:
-        """Return whether the latest update gave this entity an entity state."""
+        """Return whether the latest update gave this entity the required state to be 
+        considered 'available'."""
         # CoordinatorEntity's `available` ignores `_attr_available`, so this keeps its own flag
         return super().available and self._has_entity_state
 
