@@ -6,19 +6,12 @@ How an entity works:
    or its fan.
 2. `parse` turns a source into a `View`, or None if the source doesn't have the entity.
    Entities are only created where it returns a view. See `View` for what goes in one.
-3. The base class sets Home Assistant's `_attr_*` values from the view through `_describe`
-   and `_apply`. Entities never implement Home Assistant's properties, so they don't need to
-   know when it reads which one.
+3. The base class has hooks, `_describe` and `_apply`, which are overriden by sub-classes
+    to set `_attr_*` values from data in the View
 4. On every coordinator update, the entity finds its source again with `_select`, repeats
    steps 2 and 3, and writes its state.
 
-An entity is unavailable when the coordinator update failed, its source is gone, `parse`
-returned None, or the view has no entity state. It recovers on the next update that has one.
-
-Nothing here may raise: an exception in a coordinator listener skips that entity's state
-write and leaves its last value showing as available.
-
-Ids are set here, never by entities (`device_key` and `ha_device_identifier` are on `Source`):
+Ids are set in these base classes, never by the sub-classes:
 
 - `unique_id`, `{DOMAIN}-{ha_device_identifier}-{suffix}`: the entity registry's key.
   Changing it orphans the entity, so existing formats can't change.
