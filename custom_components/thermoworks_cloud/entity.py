@@ -87,14 +87,25 @@ class Source(Protocol):
 
 @dataclass(frozen=True)
 class View[R, D]:
-    """Contains the data that an entity parses from its source. Should contain only the 
-    data that the entity needs to update its state."""
+    """Everything an entity shows, parsed from its source by the entity's `parse`.
 
-    # Contains the state required for an entity to be 'available' in HA terms. Will be None 
-    # if the source is unavailable and can't give it right now
+    A device reports two kinds of data: its configuration (channel names, display units,
+    which alarms are set), which is known even when it has nothing to measure, and its
+    live readings, which come and go as probes are plugged in or fans connect. A view
+    keeps them apart so an entity can be known but unavailable, like a probe that isn't
+    plugged in yet. To decide where a value goes, ask whether it would be wrong to show
+    once it's out of date. If so, it belongs in the entity state.
+    """
+
+    # Values from the live reading: the HA state, attributes, and anything else that depends
+    # on it, like a charging icon. None when the source exists but has nothing current to
+    # report (a failed probe, a disconnected fan), which makes the entity unavailable. If
+    # the reading is current but leaves out one value, keep the state and set that field to
+    # None instead, so HA shows that value as unknown.
     entity_state: R | None
-    # Contains the properties required for the entity to be displayed in HA. These properties
-    # will be displayed regardless of whether the entity is 'available' or not
+    # What the entity is, from configuration: its name, unit or device class. It must be
+    # known without a reading, so never put reading values here. Use None (the entity's
+    # default) when class attributes like `_attr_device_class` describe it fully.
     description: D
 
 
